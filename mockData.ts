@@ -1,86 +1,74 @@
+// src/mockData.ts
 
-import { AWSAccount, HistoricalData } from './types';
-
-export const MOCK_ACCOUNTS: AWSAccount[] = [
-  {
-    id: "112233445566",
-    name: "Production-Core",
-    asgs: [
-      {
-        id: "asg-1",
-        name: "web-app-production",
-        region: "us-east-1",
-        metrics: [
-          { type: "t3.large", lifecycle: "on-demand", count: 4 },
-          { type: "t3.large", lifecycle: "spot", count: 12 }
-        ]
-      },
-      {
-        id: "asg-2",
-        name: "api-service-prod",
-        region: "us-east-1",
-        metrics: [
-          { type: "m5.xlarge", lifecycle: "on-demand", count: 2 },
-          { type: "m5.xlarge", lifecycle: "spot", count: 8 }
-        ]
-      }
-    ]
-  },
-  {
-    id: "998877665544",
-    name: "Staging-Development",
-    asgs: [
-      {
-        id: "asg-3",
-        name: "dev-playground",
-        region: "eu-west-1",
-        metrics: [
-          { type: "t2.micro", lifecycle: "spot", count: 15 }
-        ]
-      }
-    ]
-  },
-  {
-    id: "445566778899",
-    name: "Shared-Services",
-    asgs: [
-      {
-        id: "asg-4",
-        name: "jenkins-nodes",
-        region: "us-west-2",
-        metrics: [
-          { type: "c5.2xlarge", lifecycle: "on-demand", count: 3 },
-          { type: "c5.2xlarge", lifecycle: "spot", count: 5 }
-        ]
-      }
-    ]
-  }
-];
-
-export const generateLast24Hours = (): HistoricalData[] => {
-  const data: HistoricalData[] = [];
-  const now = new Date();
-  for (let i = 24; i >= 0; i--) {
-    const time = new Date(now.getTime() - i * 3600000);
-    data.push({
-      timestamp: time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      spot: Math.floor(Math.random() * 20) + 30,
-      onDemand: Math.floor(Math.random() * 10) + 10,
-    });
-  }
-  return data;
+// ---- LIVE MOCK ----
+export const mockLiveData = {
+  status: "success",
+  data: [
+    {
+      accountId: "351387070227",
+      region: "ap-south-1",
+      spotCount: 5,
+      onDemandCount: 8,
+      asgs: [
+        {
+          asgName: "web-asg",
+          instanceType: "t3.medium",
+          spot: 3,
+          onDemand: 2
+        },
+        {
+          asgName: "worker-asg",
+          instanceType: "m5.large",
+          spot: 2,
+          onDemand: 6
+        }
+      ],
+      timestamp: Math.floor(Date.now() / 1000)
+    }
+  ]
 };
 
-export const generateLast7Days = (): HistoricalData[] => {
-  const data: HistoricalData[] = [];
-  const now = new Date();
-  for (let i = 7; i >= 0; i--) {
-    const date = new Date(now.getTime() - i * 86400000);
-    data.push({
-      timestamp: date.toLocaleDateString([], { month: 'short', day: 'numeric' }),
-      spot: Math.floor(Math.random() * 50) + 200,
-      onDemand: Math.floor(Math.random() * 30) + 80,
-    });
-  }
-  return data;
+// ---- SUMMARY MOCK ----
+export const mockSummaryData = {
+  status: "success",
+  totalSpot: 12,
+  totalOnDemand: 20,
+  accounts: [
+    {
+      accountId: "351387070227",
+      totalSpot: 5,
+      totalOnDemand: 8
+    }
+  ]
+};
+
+// ---- HISTORY MOCK ----
+export const mockHistoryData = {
+  status: "success",
+  data: [
+    {
+      accountId: "351387070227",
+      region: "ap-south-1",
+      date: "2026-01-22",
+      hour: "10",
+      spotCount: 4,
+      onDemandCount: 7
+    },
+    {
+      accountId: "351387070227",
+      region: "ap-south-1",
+      date: "2026-01-22",
+      hour: "11",
+      spotCount: 5,
+      onDemandCount: 8
+    },
+    {
+      accountId: "351387070227",
+      region: "ap-south-1",
+      date: "2026-01-22",
+      hour: "12",
+      spotCount: 6,
+      onDemandCount: 9
+    }
+  ]
 };
