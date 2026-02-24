@@ -14,6 +14,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
     { id: 'dashboard', label: 'Dashboard', icon: '📊' },
     { id: 'accounts', label: 'Account Explorer', icon: '🏢' },
     { id: 'analytics', label: 'Analytics', icon: '📈' },
+    { id: 'balancer', label: 'Capacity Balancer', icon: '⚖️' },
     { id: 'ai', label: 'Bedrock Advisor', icon: '✨' },
   ];
 
