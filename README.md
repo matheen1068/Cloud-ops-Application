@@ -1,20 +1,36 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Cloud-Ops
 
-# Run and deploy your AI Studio app
+A SaaS for managing and scaling Auto Scaling groups across many AWS accounts from one place: live events, sales, launches, or day-to-day operations. It's built for solo engineers and startups with a few accounts, and for MSPs managing many customers' accounts.
 
-This contains everything you need to run your app locally.
+## Repo layout
 
-View your app in AI Studio: https://ai.studio/apps/40535e2f-9857-498d-8a91-643c63bd3499
+```
+apps/web/              React UI (design prototype from Google AI Studio, simulated data)
+services/api/          TypeScript Lambda handlers (next)
+packages/shared/       Types shared by web, API and infra
+infra/cdk/             AWS CDK app for the platform (next)
+onboarding/
+  cloudformation/      Customer access role: quick-create link or StackSet
+  terraform/           Same role as a Terraform module
+```
 
-## Run Locally
+## How customers connect
 
-**Prerequisites:**  Node.js
+Every connected account gets one role, `CloudOpsAccessRole`, which trusts only the Cloud-Ops platform role and requires the tenant's external ID. Customers create it one of three ways:
 
+1. **One account:** CloudFormation quick-create link from the app
+2. **Whole organization:** the same template as a service-managed StackSet
+3. **Terraform users:** the module in `onboarding/terraform`
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## Run the web app
+
+```bash
+npm install
+npm run dev        # http://localhost:3000
+```
+
+The AI advisor needs `GEMINI_API_KEY` in `apps/web/.env.local`. It is design-only for now and will move behind the API.
+
+## Stack
+
+TypeScript end to end: React + Vite, Node.js Lambdas, AWS CDK. Terraform (HCL) is used only for the customer onboarding module.

@@ -1,0 +1,12 @@
+{
+  "name": "@cloud-ops/shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Types shared by the web app, the API and the infrastructure code.",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "lint": "tsc --noEmit"
+  }
+}
