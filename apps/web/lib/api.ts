@@ -1,6 +1,10 @@
 // Typed client for the Cloud-Ops API. Request/response types are shared with the Lambdas.
 import type {
+  AuditPage,
   AwsAccount,
+  InsightsReport,
+  SettingsView,
+  UpdateSettingsRequest,
   CapacityChangeRequest,
   CapacitySettings,
   ConnectAccountRequest,
@@ -52,9 +56,21 @@ export const api = {
   createEvent: (req: CreateScaleEventRequest) => request<{ event: ScaleEvent }>('POST', '/scale-events', req),
   cancelEvent: (eventId: string) =>
     request<{ event: ScaleEvent }>('POST', `/scale-events/${encodeURIComponent(eventId)}/cancel`),
+  investigateEvent: (eventId: string) =>
+    request<{ sent: boolean }>('POST', `/scale-events/${encodeURIComponent(eventId)}/investigate`),
 
   listSchedules: () => request<{ schedules: ScaleSchedule[] }>('GET', '/schedules'),
   createSchedule: (req: CreateScheduleRequest) => request<{ schedule: ScaleSchedule }>('POST', '/schedules', req),
   deleteSchedule: (scheduleId: string) =>
     request<{ deleted: string }>('DELETE', `/schedules/${encodeURIComponent(scheduleId)}`),
+
+  getSettings: () => request<{ settings: SettingsView }>('GET', '/settings'),
+  updateSettings: (req: UpdateSettingsRequest) => request<{ settings: SettingsView }>('PUT', '/settings', req),
+  testSettings: () => request<{ results: Record<string, string> }>('POST', '/settings/test'),
+
+  getInsights: () => request<{ report: InsightsReport | null }>('GET', '/insights'),
+  runInsights: () => request<{ report: InsightsReport }>('POST', '/insights/run'),
+
+  listAudit: (cursor?: string) =>
+    request<AuditPage>('GET', `/audit?limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`),
 };

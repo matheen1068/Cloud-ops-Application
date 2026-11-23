@@ -6,6 +6,8 @@ import AccountExplorer from './components/AccountExplorer';
 import ConnectAccount from './components/ConnectAccount';
 import ScaleEvents from './components/ScaleEvents';
 import Schedules from './components/Schedules';
+import Activity from './components/Activity';
+import Settings from './components/Settings';
 import Analytics from './components/Analytics';
 import CapacityBalancer from './components/CapacityBalancer';
 import AIAdvisor from './components/AIAdvisor';
@@ -101,6 +103,10 @@ const App: React.FC = () => {
         return <ScaleEvents accounts={fleet.accounts} canOperate={canOperate} onChanged={refresh} />;
       case 'schedules':
         return <Schedules accounts={fleet.accounts} canOperate={canOperate} onChanged={refresh} />;
+      case 'activity':
+        return <Activity />;
+      case 'settings':
+        return <Settings canEdit={role === 'owner' || role === 'admin'} />;
       case 'connect':
         return (
           <ConnectAccount

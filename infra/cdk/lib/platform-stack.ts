@@ -13,6 +13,7 @@ export interface PlatformStackProps extends StackProps {
   budgetEmail?: string;
   monthlyBudgetUsd: number;
   allowedOrigins: string[];
+  senderEmail?: string;
 }
 
 /**
@@ -36,6 +37,7 @@ export class PlatformStack extends Stack {
       userPoolClient: auth.userPoolClient,
       // Local dev origins plus the CloudFront URL of the hosted app
       allowedOrigins: [...props.allowedOrigins, web.url],
+      senderEmail: props.senderEmail,
     });
 
     // The hosted app reads its API and Cognito settings from config.json.
