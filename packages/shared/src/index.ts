@@ -85,6 +85,27 @@ export interface AwsAccount {
   lastError?: string;
 }
 
+/** POST /accounts body: connect an account after the customer created the role. */
+export interface ConnectAccountRequest {
+  roleArn: string;
+  alias: string;
+  regions?: string[]; // defaults to the platform's region
+  accessLevel?: AccessLevel; // must match what the template was deployed with
+  clientId?: string;
+}
+
+/** What GET /me returns. `onboarding` is only sent to owners and admins. */
+export interface MeResponse {
+  user: { userId: string; email: string; role: UserRole };
+  tenant: { tenantId: string; name: string; plan: PlanId; limits: PlanLimits };
+  onboarding?: {
+    platformAccountId: string;
+    platformRoleName: string;
+    accessRoleName: string;
+    externalId: string;
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Auto Scaling groups
 // ---------------------------------------------------------------------------
@@ -116,11 +137,17 @@ export interface AutoScalingGroupSummary extends AsgRef {
   lastSyncedAt: string;
 }
 
-/** "Scale now" request from the UI. */
+/** "Scale now" request from the UI (PUT /asgs/capacity). */
 export interface CapacityChangeRequest {
   asg: AsgRef;
   capacity: CapacitySettings;
   reason?: string;
+}
+
+/** GET /asgs response. Partial failures (one account or region down) land in `errors`. */
+export interface ListAsgsResponse {
+  asgs: AutoScalingGroupSummary[];
+  errors: { accountId: string; region?: string; message: string }[];
 }
 
 // ---------------------------------------------------------------------------

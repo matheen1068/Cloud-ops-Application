@@ -6,9 +6,10 @@ A SaaS for managing and scaling Auto Scaling groups across many AWS accounts fro
 
 ```
 apps/web/              React UI (design prototype from Google AI Studio, simulated data)
-services/api/          TypeScript Lambda handlers (next)
+services/api/          TypeScript Lambda handlers (/me, /accounts, /asgs, /asgs/capacity)
 packages/shared/       Types shared by web, API and infra
-infra/cdk/             AWS CDK app for the platform (next)
+infra/cdk/             AWS CDK app for the platform (serverless, ~$0 idle)
+infra/test-fixtures/   A $0 test ASG for trying the API
 onboarding/
   cloudformation/      Customer access role: quick-create link or StackSet
   terraform/           Same role as a Terraform module
@@ -30,6 +31,17 @@ npm run dev        # http://localhost:3000
 ```
 
 The AI advisor needs `GEMINI_API_KEY` in `apps/web/.env.local`. It is design-only for now and will move behind the API.
+
+## Deploy the platform
+
+See [`infra/cdk/README.md`](infra/cdk/README.md): `npx cdk deploy`, then a step-by-step test with curl.
+
+## Checks
+
+```bash
+npm run lint                    # type-check every package
+npm test -w @cloud-ops/api      # API tests against mocked AWS
+```
 
 ## Stack
 
