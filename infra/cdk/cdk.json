@@ -1,0 +1,8 @@
+{
+  "app": "npx tsx bin/app.ts",
+  "context": {
+    "stage": "dev",
+    "monthlyBudgetUsd": 10,
+    "allowedOrigins": "http://localhost:3000"
+  }
+}
