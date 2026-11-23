@@ -5,7 +5,7 @@ A SaaS for managing and scaling Auto Scaling groups across many AWS accounts fro
 ## Repo layout
 
 ```
-apps/web/              React UI (design prototype from Google AI Studio, simulated data)
+apps/web/              React UI: Cognito sign-in, live accounts and ASGs, scale now
 services/api/          TypeScript Lambda handlers (/me, /accounts, /asgs, /asgs/capacity)
 packages/shared/       Types shared by web, API and infra
 infra/cdk/             AWS CDK app for the platform (serverless, ~$0 idle)
@@ -23,18 +23,21 @@ Every connected account gets one role, `CloudOpsAccessRole`, which trusts only t
 2. **Whole organization:** the same template as a service-managed StackSet
 3. **Terraform users:** the module in `onboarding/terraform`
 
-## Run the web app
+## Run the web app locally
 
 ```bash
 npm install
-npm run dev        # http://localhost:3000
+npm run config -w @cloud-ops/web
+npm run dev
 ```
 
-The AI advisor needs `GEMINI_API_KEY` in `apps/web/.env.local`. It is design-only for now and will move behind the API.
+The `config` step pulls the API and Cognito settings from your deployed `CloudOps-dev` stack. The app opens on http://localhost:3000.
+
+Live: sign-in/sign-up, Dashboard, Account Explorer (with Scale) and Connect Account. Analytics, Capacity Balancer and the AI advisor are still previews with sample data. The Gemini key (`apps/web/.env.local`) is only used by `npm run dev` and never goes into a production build.
 
 ## Deploy the platform
 
-See [`infra/cdk/README.md`](infra/cdk/README.md): `npx cdk deploy`, then a step-by-step test with curl.
+`npm run deploy` builds the web app and deploys everything (API, Cognito, DynamoDB, S3 + CloudFront). See [`infra/cdk/README.md`](infra/cdk/README.md) for first-time setup and a curl walkthrough.
 
 ## Checks
 

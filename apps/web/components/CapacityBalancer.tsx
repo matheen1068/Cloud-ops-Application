@@ -256,8 +256,12 @@ const CapacityBalancer: React.FC<CapacityBalancerProps> = ({ accounts }) => {
             </div>
 
             <div className="mt-8 pt-8 border-t border-slate-100 flex justify-end">
-              <button className="px-8 py-4 bg-slate-900 text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-xl shadow-slate-900/20 active:scale-95">
-                Apply to AWS Fleet
+              <button
+                disabled
+                title="Mixed-instances changes are coming soon. Use Scale in Account Explorer to change capacity."
+                className="px-8 py-4 bg-slate-300 text-white rounded-2xl text-xs font-black uppercase tracking-widest cursor-not-allowed"
+              >
+                Apply to AWS Fleet · Soon
               </button>
             </div>
           </div>

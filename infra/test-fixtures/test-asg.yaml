@@ -1,7 +1,8 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
   Cloud-Ops test fixture. A tiny ASG that starts at 0 instances, so it costs
-  nothing until you scale it from Cloud-Ops. Scale back to 0 (or delete the
+  nothing until you scale it from Cloud-Ops. Use subnets in zones that offer
+  t4g.nano (not us-east-1e). Scale back to 0 (or delete the
   stack) when you're done testing.
 
 Parameters:

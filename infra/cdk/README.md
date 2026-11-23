@@ -8,6 +8,7 @@ AWS CDK (TypeScript) app for the Cloud-Ops platform. One stack, `CloudOps-<stage
 | Auth | Cognito, **Lite** plan | Free tier covers 10,000 monthly users |
 | API | API Gateway **HTTP API** + 4 Lambdas | HTTP API is the cheaper flavour; ARM Lambdas; throttled at 20 req/s |
 | Logs | CloudWatch Logs | Kept 1 week only |
+| Web app | S3 (private) + CloudFront | CloudFront's always-free tier: 1 TB and 10M requests a month |
 | Cost alert | AWS Budgets (whole account) | Budgets without actions are free |
 
 There's no VPC, NAT gateway, load balancer or always-on server. Idle cost is about $0. In `dev`, everything is deleted by `cdk destroy`.
@@ -16,16 +17,31 @@ There's no VPC, NAT gateway, load balancer or always-on server. Idle cost is abo
 
 Prerequisites: Node 20+, AWS CLI v2 signed in (`aws configure` or `aws sso login`), and a region set (e.g. `ap-south-1`).
 
-```bash
-# from the repo root
-npm install
+Set your budget email once, so a deploy can never drop the cost alert:
 
-cd infra/cdk
-npx cdk bootstrap                                      # once per account + region
-npx cdk deploy -c budgetEmail=you@example.com          # ~3 minutes
+```bash
+echo 'export CLOUDOPS_BUDGET_EMAIL=you@example.com' >> ~/.zshrc
+source ~/.zshrc
 ```
 
-Note the outputs: `ApiUrl`, `UserPoolId`, `UserPoolClientId`, `PlatformAccountId`, `PlatformRoleName`.
+Then, from the repo root:
+
+```bash
+npm install
+cd infra/cdk && npx cdk bootstrap && cd ../..
+npm run deploy
+```
+
+`npm run deploy` builds the web app and runs `cdk deploy`. The site, its `config.json` and a CloudFront cache refresh all go out together. Open the `WebUrl` output to use the app.
+
+### Local development
+
+```bash
+npm run config -w @cloud-ops/web
+npm run dev
+```
+
+`config` writes `apps/web/public/config.json` from the deployed stack's outputs, so `http://localhost:3000` talks to the same API and Cognito pool.
 
 ## Try it end to end (same account as platform and "customer")
 
@@ -56,10 +72,15 @@ aws cloudformation deploy --stack-name cloudops-access-role \
   --parameter-overrides PlatformAccountId=<platformAccountId> \
     PlatformRoleName=<platformRoleName> ExternalId=<externalId>
 
-# 5. Optional: a test ASG at 0 instances ($0 until you scale it)
+# 5. Optional: a test ASG at 0 instances ($0 until you scale it).
+#    Only uses subnets in zones that offer t4g.nano (us-east-1e doesn't).
+AZS=$(aws ec2 describe-instance-type-offerings --location-type availability-zone \
+  --filters Name=instance-type,Values=t4g.nano --query 'InstanceTypeOfferings[].Location' --output text | tr '\t' ',')
+SUBNETS=$(aws ec2 describe-subnets --filters Name=default-for-az,Values=true Name=availability-zone,Values=$AZS \
+  --query 'Subnets[0:2].SubnetId' --output text | tr '\t' ',')
 aws cloudformation deploy --stack-name cloudops-test-asg \
   --template-file ../test-fixtures/test-asg.yaml \
-  --parameter-overrides SubnetIds=<subnet-a>,<subnet-b>
+  --parameter-overrides SubnetIds=$SUBNETS
 
 # 6. Connect the account
 curl -s -X POST $API/accounts -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
@@ -86,6 +107,6 @@ npx cdk destroy
 | Flag | Default | |
 |---|---|---|
 | `stage` | `dev` | `prod` keeps data on delete, enables backups, turns off CLI password login |
-| `budgetEmail` | none | Turns on the monthly cost alert (50%, 80% and forecast 100%) |
+| `budgetEmail` | env `CLOUDOPS_BUDGET_EMAIL` | Turns on the monthly cost alert (50%, 80% and forecast 100%) |
 | `monthlyBudgetUsd` | `10` | |
 | `allowedOrigins` | `http://localhost:3000` | Comma-separated CORS origins |

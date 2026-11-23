@@ -1,94 +1,219 @@
-
 import React, { useState } from 'react';
-import { AWSAccount, ASG, InstanceMetrics } from '../types';
+import { validateCapacity, type CapacitySettings } from '@cloud-ops/shared';
+import { ASG, AWSAccount } from '../types';
 
 interface AccountExplorerProps {
   accounts: AWSAccount[];
+  canOperate: boolean;
+  onScale: (asg: ASG, capacity: CapacitySettings, reason: string) => Promise<void>;
+  onConnect: () => void;
 }
 
-const AccountExplorer: React.FC<AccountExplorerProps> = ({ accounts }) => {
+const AccountExplorer: React.FC<AccountExplorerProps> = ({ accounts, canOperate, onScale, onConnect }) => {
   const [expandedAccount, setExpandedAccount] = useState<string | null>(accounts[0]?.id || null);
+
+  if (accounts.length === 0) {
+    return (
+      <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center space-y-4">
+        <p className="text-4xl">🏢</p>
+        <h3 className="text-xl font-black text-slate-900">No accounts connected yet</h3>
+        <p className="text-sm text-slate-500">Connect an AWS account to see and scale its Auto Scaling groups.</p>
+        <button onClick={onConnect} className="px-6 py-3 bg-orange-600 text-white rounded-2xl text-xs font-black uppercase hover:bg-orange-700">
+          Connect account
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
       {accounts.map((account) => (
-        <div 
-          key={account.id} 
+        <div
+          key={account.id}
           className={`bg-white rounded-xl border transition-all ${
             expandedAccount === account.id ? 'border-blue-200 shadow-md' : 'border-slate-200 shadow-sm hover:border-slate-300'
           }`}
         >
-          {/* Account Header */}
           <button
             onClick={() => setExpandedAccount(expandedAccount === account.id ? null : account.id)}
             className="w-full px-6 py-4 flex items-center justify-between text-left"
           >
             <div className="flex items-center gap-4">
-              <div className="p-2 bg-slate-100 rounded-lg text-slate-500">
-                🏢
-              </div>
+              <div className="p-2 bg-slate-100 rounded-lg text-slate-500">🏢</div>
               <div>
                 <h3 className="font-bold text-slate-900">{account.name}</h3>
-                <p className="text-xs text-slate-500">AWS ID: {account.id}</p>
+                <p className="text-xs text-slate-500">
+                  AWS ID: {account.id} · {account.regions.join(', ')}
+                </p>
               </div>
             </div>
-            <div className="flex items-center gap-8">
+            <div className="flex items-center gap-6">
+              <span
+                className={`px-2 py-1 rounded text-[10px] font-black uppercase ${
+                  account.accessLevel === 'Operate' ? 'bg-green-50 text-green-700' : 'bg-slate-100 text-slate-500'
+                }`}
+              >
+                {account.accessLevel === 'Operate' ? 'Can scale' : 'Read-only'}
+              </span>
               <div className="hidden sm:flex flex-col items-end">
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Running ASGs</span>
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">ASGs</span>
                 <span className="text-lg font-bold text-slate-800">{account.asgs.length}</span>
               </div>
-              <span className={`text-xl transition-transform ${expandedAccount === account.id ? 'rotate-180' : ''}`}>
-                ⌄
-              </span>
+              <span className={`text-xl transition-transform ${expandedAccount === account.id ? 'rotate-180' : ''}`}>⌄</span>
             </div>
           </button>
 
-          {/* Account Content (ASGs) */}
           {expandedAccount === account.id && (
-            <div className="px-6 pb-6 pt-2 border-t border-slate-50">
-              <div className="grid grid-cols-1 gap-4">
-                {account.asgs.map((asg) => (
-                  <div key={asg.id} className="p-4 bg-slate-50 rounded-lg border border-slate-100">
-                    <div className="flex items-center justify-between mb-4">
-                      <div>
-                        <h4 className="font-semibold text-slate-800">{asg.name}</h4>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase">{asg.region}</p>
-                      </div>
-                      <div className="flex gap-2">
-                        {asg.metrics.map((m, idx) => (
-                          <span 
-                            key={idx} 
-                            className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-tight ${
-                              m.lifecycle === 'spot' ? 'bg-blue-100 text-blue-700' : 'bg-indigo-100 text-indigo-700'
-                            }`}
-                          >
-                            {m.lifecycle}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                    
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {asg.metrics.map((m, idx) => (
-                        <div key={idx} className="bg-white p-3 rounded border border-slate-200 flex justify-between items-center shadow-sm">
-                          <div>
-                            <p className="text-xs font-medium text-slate-500">Instance Type</p>
-                            <p className="text-sm font-bold text-slate-800 font-mono">{m.type}</p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-xs font-medium text-slate-500">Count</p>
-                            <p className="text-lg font-bold text-slate-900">{m.count}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
+            <div className="px-6 pb-6 pt-2 border-t border-slate-50 grid grid-cols-1 gap-4">
+              {account.asgs.length === 0 && (
+                <p className="text-sm text-slate-500 py-4">No Auto Scaling groups found in {account.regions.join(', ')}.</p>
+              )}
+              {account.asgs.map((asg) => (
+                <AsgCard
+                  key={asg.id}
+                  asg={asg}
+                  canScale={canOperate && account.accessLevel === 'Operate'}
+                  onScale={onScale}
+                />
+              ))}
             </div>
           )}
         </div>
       ))}
+    </div>
+  );
+};
+
+const numberInput =
+  'w-full px-3 py-2 rounded-lg border border-slate-200 text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-orange-500/50';
+
+const AsgCard: React.FC<{
+  asg: ASG;
+  canScale: boolean;
+  onScale: AccountExplorerProps['onScale'];
+}> = ({ asg, canScale, onScale }) => {
+  const [editing, setEditing] = useState(false);
+  const [capacity, setCapacity] = useState<CapacitySettings>(asg.capacity);
+  const [reason, setReason] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const open = () => {
+    setCapacity(asg.capacity);
+    setReason('');
+    setError(null);
+    setEditing(true);
+  };
+
+  const apply = async () => {
+    const invalid = validateCapacity(capacity);
+    if (invalid) {
+      setError(invalid);
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await onScale(asg, capacity, reason);
+      setEditing(false);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const field = (key: keyof CapacitySettings, label: string) => (
+    <label className="space-y-1">
+      <span className="text-[10px] font-black text-slate-400 uppercase">{label}</span>
+      <input
+        type="number"
+        min={0}
+        value={capacity[key]}
+        onChange={(e) => setCapacity({ ...capacity, [key]: Number(e.target.value) })}
+        className={numberInput}
+      />
+    </label>
+  );
+
+  return (
+    <div className="p-4 bg-slate-50 rounded-lg border border-slate-100">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h4 className="font-semibold text-slate-800 flex items-center gap-2">
+            {asg.name}
+            {asg.managed && (
+              <span className="px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 text-[9px] font-black uppercase">Managed</span>
+            )}
+          </h4>
+          <p className="text-[10px] font-bold text-slate-400 uppercase">{asg.region}</p>
+        </div>
+        {canScale && !editing && (
+          <button onClick={open} className="px-4 py-2 bg-slate-900 text-white rounded-xl text-[11px] font-black uppercase hover:bg-slate-800">
+            Scale
+          </button>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        {(
+          [
+            ['Min', asg.capacity.min],
+            ['Desired', asg.capacity.desired],
+            ['Max', asg.capacity.max],
+            ['In service', asg.inService],
+          ] as const
+        ).map(([label, value]) => (
+          <div key={label} className="bg-white p-3 rounded border border-slate-200 shadow-sm">
+            <p className="text-xs font-medium text-slate-500">{label}</p>
+            <p className="text-lg font-bold text-slate-900">{value}</p>
+          </div>
+        ))}
+      </div>
+
+      {asg.metrics.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {asg.metrics.map((m) => (
+            <span
+              key={m.lifecycle}
+              className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-tight ${
+                m.lifecycle === 'spot' ? 'bg-blue-100 text-blue-700' : 'bg-indigo-100 text-indigo-700'
+              }`}
+            >
+              {m.count} {m.lifecycle} · <span className="font-mono normal-case">{m.type}</span>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {editing && (
+        <div className="mt-4 p-4 bg-white rounded-xl border border-orange-200 space-y-4">
+          <div className="grid grid-cols-3 gap-3">
+            {field('min', 'Min')}
+            {field('desired', 'Desired')}
+            {field('max', 'Max')}
+          </div>
+          <input
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Reason (optional), e.g. IPL final"
+            className={numberInput}
+          />
+          {error && <p className="text-xs font-medium text-red-700">{error}</p>}
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setEditing(false)} className="px-4 py-2 rounded-xl text-[11px] font-black uppercase text-slate-500 hover:bg-slate-100">
+              Cancel
+            </button>
+            <button
+              onClick={apply}
+              disabled={saving}
+              className="px-4 py-2 bg-orange-600 text-white rounded-xl text-[11px] font-black uppercase hover:bg-orange-700 disabled:opacity-60"
+            >
+              {saving ? 'Applying…' : 'Apply'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -3,6 +3,9 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { AWSAccount } from "../types";
 
 export const getAIRecommendations = async (accounts: AWSAccount[]): Promise<string> => {
+  if (!process.env.API_KEY) {
+    return "The AI advisor is coming soon. It will run on Amazon Bedrock behind the Cloud-Ops API, so no API key ever ships to the browser.";
+  }
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const accountsSummary = accounts.map(acc => {
