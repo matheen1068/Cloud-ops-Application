@@ -16,6 +16,8 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: '📊' },
     { id: 'accounts', label: 'Account Explorer', icon: '🏢' },
+    { id: 'events', label: 'Scale Events', icon: '🗓️' },
+    { id: 'schedules', label: 'Schedules', icon: '🌙' },
     { id: 'connect', label: 'Connect Account', icon: '🔗' },
     { id: 'analytics', label: 'Analytics', icon: '📈', preview: true },
     { id: 'balancer', label: 'Capacity Balancer', icon: '⚖️', preview: true },

@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
-import { validateCapacity, type CapacitySettings } from '@cloud-ops/shared';
+import { validateCapacity, type CapacitySettings, type ReadinessResult } from '@cloud-ops/shared';
+import { api } from '../lib/api';
 import { ASG, AWSAccount } from '../types';
+import ReadinessList, { hasFailures, hasProblems } from './ReadinessList';
 
 interface AccountExplorerProps {
   accounts: AWSAccount[];
@@ -97,14 +99,25 @@ const AsgCard: React.FC<{
   const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Readiness results for the capacity currently in the form; null = not checked yet.
+  const [checks, setChecks] = useState<ReadinessResult[] | null>(null);
 
   const open = () => {
     setCapacity(asg.capacity);
     setReason('');
     setError(null);
+    setChecks(null);
     setEditing(true);
   };
 
+  const scale = async () => {
+    await onScale(asg, capacity, reason);
+    setEditing(false);
+    setChecks(null);
+  };
+
+  // First click runs the readiness check. All clear: apply straight away.
+  // Problems: show them and let the user choose "Apply anyway".
   const apply = async () => {
     const invalid = validateCapacity(capacity);
     if (invalid) {
@@ -114,8 +127,15 @@ const AsgCard: React.FC<{
     setSaving(true);
     setError(null);
     try {
-      await onScale(asg, capacity, reason);
-      setEditing(false);
+      if (checks) {
+        await scale();
+        return;
+      }
+      const { results } = await api.readiness({
+        targets: [{ asg: { accountId: asg.accountId, region: asg.region, asgName: asg.name }, capacity }],
+      });
+      if (hasProblems(results)) setChecks(results);
+      else await scale();
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -130,7 +150,10 @@ const AsgCard: React.FC<{
         type="number"
         min={0}
         value={capacity[key]}
-        onChange={(e) => setCapacity({ ...capacity, [key]: Number(e.target.value) })}
+        onChange={(e) => {
+          setCapacity({ ...capacity, [key]: Number(e.target.value) });
+          setChecks(null); // capacity changed: check again
+        }}
         className={numberInput}
       />
     </label>
@@ -199,6 +222,7 @@ const AsgCard: React.FC<{
             placeholder="Reason (optional), e.g. IPL final"
             className={numberInput}
           />
+          {checks && <ReadinessList results={checks} />}
           {error && <p className="text-xs font-medium text-red-700">{error}</p>}
           <div className="flex justify-end gap-2">
             <button onClick={() => setEditing(false)} className="px-4 py-2 rounded-xl text-[11px] font-black uppercase text-slate-500 hover:bg-slate-100">
@@ -207,9 +231,11 @@ const AsgCard: React.FC<{
             <button
               onClick={apply}
               disabled={saving}
-              className="px-4 py-2 bg-orange-600 text-white rounded-xl text-[11px] font-black uppercase hover:bg-orange-700 disabled:opacity-60"
+              className={`px-4 py-2 text-white rounded-xl text-[11px] font-black uppercase disabled:opacity-60 ${
+                checks && hasFailures(checks) ? 'bg-red-600 hover:bg-red-700' : 'bg-orange-600 hover:bg-orange-700'
+              }`}
             >
-              {saving ? 'Applying…' : 'Apply'}
+              {saving ? (checks ? 'Applying…' : 'Checking…') : checks ? 'Apply anyway' : 'Check & apply'}
             </button>
           </div>
         </div>

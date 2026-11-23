@@ -151,12 +151,34 @@ export interface ListAsgsResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Readiness checks (run before Scale Now, events and schedules)
+// ---------------------------------------------------------------------------
+
+export type CheckStatus = 'pass' | 'warn' | 'fail';
+
+export interface ReadinessCheck {
+  id: string; // e.g. 'vcpu-quota', 'az-offering'
+  status: CheckStatus;
+  title: string;
+  detail: string;
+}
+
+export interface ReadinessResult {
+  asg: AsgRef;
+  current?: CapacitySettings;
+  checks: ReadinessCheck[];
+}
+
+/** POST /asgs/readiness */
+export interface ReadinessRequest {
+  targets: { asg: AsgRef; capacity: CapacitySettings }[];
+}
+
+// ---------------------------------------------------------------------------
 // Scale events (live match, sale, launch...)
 // ---------------------------------------------------------------------------
 
 export type ScaleEventStatus =
-  | 'draft'
-  | 'pending-approval'
   | 'scheduled'
   | 'scaling-up'
   | 'active'
@@ -165,27 +187,98 @@ export type ScaleEventStatus =
   | 'failed'
   | 'cancelled';
 
+export type TargetState = 'pending' | 'scaled' | 'failed' | 'reverted' | 'revert-failed' | 'skipped';
+
 export interface ScaleTarget {
   asg: AsgRef;
   target: CapacitySettings;
   /** Captured just before scale-up; used to scale back when the event ends. */
   baseline?: CapacitySettings;
+  state: TargetState;
+  message?: string;
+}
+
+export interface TimelineEntry {
+  at: string;
+  level: 'info' | 'warn' | 'error';
+  message: string;
 }
 
 export interface ScaleEvent {
   tenantId: string;
   eventId: string;
   name: string; // e.g. "IPL final", "Diwali sale"
-  description?: string;
   targets: ScaleTarget[];
+  /** When capacity must be ready (traffic starts). */
   startsAt: string;
+  /** Scale-up begins this many minutes before startsAt. */
+  prescaleMinutes: number;
+  /** When the event ends and capacity goes back to baseline. */
   endsAt: string;
-  revertOnEnd: boolean;
-  requiresApproval: boolean;
-  approvedBy?: string;
   status: ScaleEventStatus;
+  timeline: TimelineEntry[];
   createdBy: string;
   createdAt: string;
+}
+
+/** POST /scale-events */
+export interface CreateScaleEventRequest {
+  name: string;
+  startsAt: string;
+  endsAt: string;
+  prescaleMinutes?: number; // default 30
+  targets: { asg: AsgRef; target: CapacitySettings }[];
+}
+
+// ---------------------------------------------------------------------------
+// Recurring schedules (e.g. non-prod off nights and weekends)
+// ---------------------------------------------------------------------------
+
+export type Weekday = 'MON' | 'TUE' | 'WED' | 'THU' | 'FRI' | 'SAT' | 'SUN';
+export const WEEKDAYS: Weekday[] = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+
+export interface ScheduleTarget {
+  asg: AsgRef;
+  /** Capacity captured when the schedule switched the ASG off; restored when it switches back on. */
+  baseline?: CapacitySettings;
+  state: 'on' | 'off' | 'error';
+  message?: string;
+}
+
+export interface ScaleSchedule {
+  tenantId: string;
+  scheduleId: string;
+  name: string; // e.g. "Staging off-hours"
+  targets: ScheduleTarget[];
+  timezone: string; // IANA, e.g. Asia/Kolkata
+  /** Days the ASGs run. They are off outside onAt-offAt on these days, and all day on other days. */
+  days: Weekday[];
+  onAt: string; // HH:MM
+  offAt: string; // HH:MM
+  timeline: TimelineEntry[];
+  createdBy: string;
+  createdAt: string;
+}
+
+/** POST /schedules */
+export interface CreateScheduleRequest {
+  name: string;
+  timezone: string;
+  days: Weekday[];
+  onAt: string;
+  offAt: string;
+  asgs: AsgRef[];
+}
+
+/** Share of the week a schedule keeps ASGs off (0-1). Used for the savings estimate. */
+export function offShareOfWeek(days: Weekday[], onAt: string, offAt: string): number {
+  const minutes = (hhmm: string) => {
+    const [h, m] = hhmm.split(':').map(Number);
+    return h * 60 + m;
+  };
+  const onPerDay = Math.max(0, minutes(offAt) - minutes(onAt));
+  const onPerWeek = onPerDay * new Set(days).size;
+  return 1 - onPerWeek / (7 * 24 * 60);
 }
 
 // ---------------------------------------------------------------------------
@@ -200,7 +293,12 @@ export type AuditAction =
   | 'scale-event.approved'
   | 'scale-event.started'
   | 'scale-event.completed'
-  | 'scale-event.failed';
+  | 'scale-event.failed'
+  | 'scale-event.cancelled'
+  | 'schedule.created'
+  | 'schedule.deleted'
+  | 'schedule.switched-off'
+  | 'schedule.switched-on';
 
 export interface AuditEntry {
   tenantId: string;

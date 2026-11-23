@@ -4,8 +4,14 @@ import type {
   CapacityChangeRequest,
   CapacitySettings,
   ConnectAccountRequest,
+  CreateScaleEventRequest,
+  CreateScheduleRequest,
   ListAsgsResponse,
   MeResponse,
+  ReadinessRequest,
+  ReadinessResult,
+  ScaleEvent,
+  ScaleSchedule,
 } from '@cloud-ops/shared';
 import { idToken } from './auth';
 import { getConfig } from './config';
@@ -40,4 +46,15 @@ export const api = {
   listAsgs: () => request<ListAsgsResponse>('GET', '/asgs'),
   setCapacity: (req: CapacityChangeRequest) =>
     request<{ before: CapacitySettings; after: CapacitySettings }>('PUT', '/asgs/capacity', req),
+  readiness: (req: ReadinessRequest) => request<{ results: ReadinessResult[] }>('POST', '/asgs/readiness', req),
+
+  listEvents: () => request<{ events: ScaleEvent[] }>('GET', '/scale-events'),
+  createEvent: (req: CreateScaleEventRequest) => request<{ event: ScaleEvent }>('POST', '/scale-events', req),
+  cancelEvent: (eventId: string) =>
+    request<{ event: ScaleEvent }>('POST', `/scale-events/${encodeURIComponent(eventId)}/cancel`),
+
+  listSchedules: () => request<{ schedules: ScaleSchedule[] }>('GET', '/schedules'),
+  createSchedule: (req: CreateScheduleRequest) => request<{ schedule: ScaleSchedule }>('POST', '/schedules', req),
+  deleteSchedule: (scheduleId: string) =>
+    request<{ deleted: string }>('DELETE', `/schedules/${encodeURIComponent(scheduleId)}`),
 };
