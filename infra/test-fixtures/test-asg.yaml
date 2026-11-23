@@ -1,0 +1,49 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Cloud-Ops test fixture. A tiny ASG that starts at 0 instances, so it costs
+  nothing until you scale it from Cloud-Ops. Scale back to 0 (or delete the
+  stack) when you're done testing.
+
+Parameters:
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: One or more subnets, e.g. from your default VPC.
+  ImageId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+    Description: Latest Amazon Linux 2023 (ARM). No need to change.
+
+Resources:
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        ImageId: !Ref ImageId
+        InstanceType: t4g.nano # smallest Graviton instance
+        MetadataOptions:
+          HttpTokens: required
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Project
+                Value: cloud-ops-test
+
+  TestAsg:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: cloudops-test-asg
+      MinSize: "0"
+      DesiredCapacity: "0"
+      MaxSize: "2"
+      VPCZoneIdentifier: !Ref SubnetIds
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      Tags:
+        - Key: CloudOpsManaged
+          Value: "true"
+          PropagateAtLaunch: false
+
+Outputs:
+  AsgName:
+    Value: !Ref TestAsg
