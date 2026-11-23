@@ -340,6 +340,22 @@ const EventCard: React.FC<{ event: ScaleEvent; canOperate: boolean; onChanged: (
   const upAt = new Date(new Date(event.startsAt).getTime() - event.prescaleMinutes * 60_000).toISOString();
   const canEnd = ['scaling-up', 'active'].includes(event.status) || (event.status === 'failed' && event.targets.some((t) => t.state === 'scaled'));
   const timeline = showAll ? [...event.timeline].reverse() : [...event.timeline].reverse().slice(0, 5);
+  const hasProblems = event.timeline.some((t) => t.level !== 'info');
+  const [sent, setSent] = useState(false);
+
+  const investigate = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.investigateEvent(event.eventId);
+      setSent(true);
+      await onChanged();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const act = async () => {
     const question = event.status === 'scheduled' ? `Cancel "${event.name}"?` : `End "${event.name}" now and scale back to baseline?`;
@@ -392,6 +408,32 @@ const EventCard: React.FC<{ event: ScaleEvent; canOperate: boolean; onChanged: (
           </div>
         ))}
       </div>
+
+      {event.report && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {[
+            ['Launched', `${event.report.launches}`],
+            ['Failed launches', `${event.report.failedLaunches}`],
+            ['Ready after', event.report.slowestReadySeconds !== undefined ? `${Math.floor(event.report.slowestReadySeconds / 60)}m ${event.report.slowestReadySeconds % 60}s` : 'n/a'],
+            ['Extra instance-hours', `${event.report.extraInstanceHours}`],
+          ].map(([label, value]) => (
+            <div key={label} className="p-3 rounded-xl bg-white border border-slate-200">
+              <p className="text-[10px] font-black text-slate-400 uppercase">{label}</p>
+              <p className={`text-lg font-black ${label === 'Failed launches' && value !== '0' ? 'text-red-600' : 'text-slate-900'}`}>{value}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {canOperate && hasProblems && event.status !== 'scheduled' && (
+        <button
+          onClick={investigate}
+          disabled={busy || sent}
+          className="px-4 py-2 rounded-xl text-[11px] font-black uppercase bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-60"
+        >
+          {sent ? 'Sent to DevOps Agent ✓' : 'Send to AWS DevOps Agent'}
+        </button>
+      )}
 
       <div className="space-y-1">
         {timeline.map((t, i) => (

@@ -6,7 +6,7 @@ import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations
 import type { UserPool, UserPoolClient } from 'aws-cdk-lib/aws-cognito';
 import type { TableV2 } from 'aws-cdk-lib/aws-dynamodb';
 import { PolicyStatement, Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
-import { CfnScheduleGroup } from 'aws-cdk-lib/aws-scheduler';
+import { CfnSchedule, CfnScheduleGroup } from 'aws-cdk-lib/aws-scheduler';
 import { Architecture, Runtime } from 'aws-cdk-lib/aws-lambda';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
@@ -23,6 +23,8 @@ interface ApiProps {
   userPool: UserPool;
   userPoolClient: UserPoolClient;
   allowedOrigins: string[];
+  /** Verified SES sender for email notifications. Email is off when missing. */
+  senderEmail?: string;
 }
 
 /** HTTP API + Lambdas. HTTP API is the cheaper API Gateway flavour, and it validates Cognito JWTs for free. */
@@ -114,7 +116,19 @@ export class Api extends Construct {
       SCHEDULE_GROUP: scheduleGroup.name!,
       SCHEDULER_ROLE_ARN: schedulerRoleArn,
       RUNNER_ARN: runnerArn,
+      ...(props.senderEmail ? { SENDER_EMAIL: props.senderEmail } : {}),
     };
+
+    // Email notifications through SES, only from the one verified sender address.
+    if (props.senderEmail) {
+      platformRole.addToPolicy(
+        new PolicyStatement({
+          actions: ['ses:SendEmail'],
+          resources: [`arn:${Aws.PARTITION}:ses:${Aws.REGION}:${Aws.ACCOUNT_ID}:identity/*`],
+          conditions: { StringEquals: { 'ses:FromAddress': props.senderEmail } },
+        }),
+      );
+    }
 
     // TS: an arrow function stored in a const, reused for every Lambda.
     const fn = (name: string, file: string, extra: { functionName?: string; timeout?: Duration } = {}) => {
@@ -146,7 +160,16 @@ export class Api extends Construct {
       { path: '/asgs', methods: [HttpMethod.GET], handler: fn('AsgsFn', 'asgs.ts') },
       { path: '/asgs/capacity', methods: [HttpMethod.PUT], handler: fn('CapacityFn', 'capacity.ts') },
       { path: '/asgs/readiness', methods: [HttpMethod.POST], handler: fn('ReadinessFn', 'readiness.ts') },
+      { path: '/audit', methods: [HttpMethod.GET], handler: fn('AuditFn', 'audit.ts') },
     ];
+    const settingsFn = fn('SettingsFn', 'settings.ts');
+    const insightsFn = fn('InsightsFn', 'insights.ts');
+    routes.push(
+      { path: '/settings', methods: [HttpMethod.GET, HttpMethod.PUT], handler: settingsFn },
+      { path: '/settings/test', methods: [HttpMethod.POST], handler: settingsFn },
+      { path: '/insights', methods: [HttpMethod.GET], handler: insightsFn },
+      { path: '/insights/run', methods: [HttpMethod.POST], handler: insightsFn },
+    );
 
     const eventsFn = fn('EventsFn', 'events.ts');
     const schedulesFn = fn('SchedulesFn', 'schedules.ts');
@@ -155,13 +178,24 @@ export class Api extends Construct {
     routes.push(
       { path: '/scale-events', methods: [HttpMethod.GET, HttpMethod.POST], handler: eventsFn },
       { path: '/scale-events/{eventId}/cancel', methods: [HttpMethod.POST], handler: eventsFn },
+      { path: '/scale-events/{eventId}/investigate', methods: [HttpMethod.POST], handler: eventsFn },
       { path: '/schedules', methods: [HttpMethod.GET, HttpMethod.POST], handler: schedulesFn },
       { path: '/schedules/{scheduleId}', methods: [HttpMethod.DELETE], handler: schedulesFn },
     );
 
     // Not behind the API: only EventBridge Scheduler invokes it (via schedulerRole).
-    const runner = fn('RunnerFn', 'runner.ts', { functionName: runnerName, timeout: Duration.minutes(2) });
+    const runner = fn('RunnerFn', 'runner.ts', { functionName: runnerName, timeout: Duration.minutes(5) });
     runner.node.addDependency(scheduleGroup);
+
+    // Insights sweep for every workspace: forgotten scale-ups and idle ASGs.
+    const sweep = new CfnSchedule(this, 'InsightsSweep', {
+      name: `cloudops-${stage}-insights-sweep`,
+      groupName: scheduleGroup.name,
+      scheduleExpression: 'rate(6 hours)',
+      flexibleTimeWindow: { mode: 'FLEXIBLE', maximumWindowInMinutes: 30 },
+      target: { arn: runnerArn, roleArn: schedulerRole.roleArn, input: JSON.stringify({ kind: 'sweep' }) },
+    });
+    sweep.node.addDependency(scheduleGroup, runner);
 
     for (const route of routes) {
       httpApi.addRoutes({

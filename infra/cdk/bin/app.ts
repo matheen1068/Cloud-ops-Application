@@ -6,6 +6,7 @@
 //   -c budgetEmail=you@mail.com  (turns on the monthly cost alert; or env CLOUDOPS_BUDGET_EMAIL)
 //   -c monthlyBudgetUsd=10
 //   -c allowedOrigins=http://localhost:3000,https://app.example.com
+//   -c notificationSender=alerts@yourdomain.com  (SES-verified; or env CLOUDOPS_SENDER_EMAIL)
 import { App } from 'aws-cdk-lib';
 import { PlatformStack, type Stage } from '../lib/platform-stack';
 
@@ -24,4 +25,5 @@ new PlatformStack(app, `CloudOps-${stage}`, {
   budgetEmail: app.node.tryGetContext('budgetEmail') ?? process.env.CLOUDOPS_BUDGET_EMAIL,
   monthlyBudgetUsd: Number(app.node.tryGetContext('monthlyBudgetUsd') ?? 10),
   allowedOrigins: origins.split(',').map((o) => o.trim()).filter(Boolean),
+  senderEmail: app.node.tryGetContext('notificationSender') ?? process.env.CLOUDOPS_SENDER_EMAIL,
 });

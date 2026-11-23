@@ -19,6 +19,8 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
     { id: 'events', label: 'Scale Events', icon: '🗓️' },
     { id: 'schedules', label: 'Schedules', icon: '🌙' },
     { id: 'connect', label: 'Connect Account', icon: '🔗' },
+    { id: 'activity', label: 'Activity', icon: '📜' },
+    { id: 'settings', label: 'Settings', icon: '⚙️' },
     { id: 'analytics', label: 'Analytics', icon: '📈', preview: true },
     { id: 'balancer', label: 'Capacity Balancer', icon: '⚖️', preview: true },
     { id: 'ai', label: 'Bedrock Advisor', icon: '✨', preview: true },

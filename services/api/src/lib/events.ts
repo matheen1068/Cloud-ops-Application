@@ -4,19 +4,23 @@
  * Scheduler; every step is idempotent so scheduler retries are safe.
  */
 import { randomUUID } from 'node:crypto';
+import { DescribeScalingActivitiesCommand, type AutoScalingClient } from '@aws-sdk/client-auto-scaling';
 import {
   asgKey,
   validateCapacity,
   type CreateScaleEventRequest,
   type ScaleEvent,
   type ScaleTarget,
+  type TargetReport,
   type Tenant,
 } from '@cloud-ops/shared';
 import { REGION_PATTERN } from './aws.js';
 import { ClientPool, entry, fmt, operableAccount, readCapacity, writeCapacity } from './capacity.js';
 import { getAccount, getEvent, getTenant, listEvents, putEvent, writeAudit } from './db.js';
 import { HttpError } from './http.js';
+import { notify, sendToDevOpsAgent } from './notify.js';
 import { checkReadiness } from './readiness.js';
+import { getSettings } from './settings.js';
 import { scheduleOnce, unschedule } from './scheduler.js';
 import type { Caller } from './tenant.js';
 
@@ -115,6 +119,7 @@ export async function startEvent(tenantId: string, eventId: string): Promise<voi
   if (!tenant || !event || event.status !== 'scheduled') return; // cancelled, or a retry after success
 
   event.status = 'scaling-up';
+  event.scaledUpAt = new Date().toISOString();
   event.timeline.push(entry('info', 'Scaling up.'));
   await putEvent(event);
 
@@ -134,6 +139,40 @@ export async function startEvent(tenantId: string, eventId: string): Promise<voi
     result: scaled === 0 ? 'failure' : 'success',
     message: `${event.name}: ${scaled}/${event.targets.length} scaled`,
   });
+
+  const lines = event.targets.map((t) =>
+    t.state === 'scaled' ? `${t.asg.asgName}: ${fmt(t.baseline!)} → ${fmt(t.target)}` : `${t.asg.asgName}: FAILED, ${t.message}`,
+  );
+  if (scaled === event.targets.length) {
+    await notify(tenantId, { kind: 'event-started', level: 'info', title: `Scale event "${event.name}" is live`, lines });
+  } else {
+    await notify(tenantId, {
+      kind: 'failure',
+      level: scaled === 0 ? 'error' : 'warn',
+      title: `Scale event "${event.name}": ${scaled} of ${event.targets.length} ASGs scaled up`,
+      lines: [...lines, ...problemLines(event)],
+      incident: { id: `cloudops-${eventId}-start`, priority: scaled === 0 ? 'HIGH' : 'MEDIUM', service: 'Cloud-Ops scale event' },
+    });
+  }
+}
+
+/** Warnings and errors from the timeline, for notifications and investigations. */
+function problemLines(event: ScaleEvent): string[] {
+  return event.timeline.filter((t) => t.level !== 'info').map((t) => t.message).slice(-10);
+}
+
+/** How the scale-up went, from the ASG's own scaling activity history. */
+async function measure(client: AutoScalingClient, asgName: string, sinceIso: string): Promise<TargetReport> {
+  const res = await client.send(new DescribeScalingActivitiesCommand({ AutoScalingGroupName: asgName, MaxRecords: 100 }));
+  const since = new Date(sinceIso).getTime();
+  const recent = (res.Activities ?? []).filter((a) => a.StartTime && a.StartTime.getTime() >= since - 5000);
+  const launches = recent.filter((a) => a.StatusCode === 'Successful' && /^launching/i.test(a.Description ?? ''));
+  const lastEnd = Math.max(0, ...launches.map((a) => a.EndTime?.getTime() ?? 0));
+  return {
+    launches: launches.length,
+    failedLaunches: recent.filter((a) => a.StatusCode === 'Failed').length,
+    readyAfterSeconds: launches.length && lastEnd ? Math.round((lastEnd - since) / 1000) : undefined,
+  };
 }
 
 async function scaleUpTarget(tenant: Tenant, pool: ClientPool, event: ScaleEvent, t: ScaleTarget): Promise<void> {
@@ -179,6 +218,7 @@ export async function endEvent(tenantId: string, eventId: string, reason = 'Even
           const account = await getAccount(tenantId, t.asg.accountId);
           if (!account) throw new Error('account was disconnected');
           const client = await pool.autoscaling(account, t.asg);
+          if (event.scaledUpAt) t.report = await measure(client, t.asg.asgName, event.scaledUpAt).catch(() => undefined);
           await writeCapacity(client, t.asg.asgName, t.baseline!);
           t.state = 'reverted';
           event.timeline.push(entry('info', `${t.asg.asgName}: back to ${fmt(t.baseline!)}`));
@@ -192,6 +232,17 @@ export async function endEvent(tenantId: string, eventId: string, reason = 'Even
 
   const failed = event.targets.some((t) => t.state === 'revert-failed');
   event.status = failed ? 'failed' : 'completed';
+
+  // Post-event report
+  const hours = event.scaledUpAt ? (Date.now() - new Date(event.scaledUpAt).getTime()) / 3600_000 : 0;
+  const scaledTargets = event.targets.filter((t) => t.baseline && (t.state === 'reverted' || t.state === 'revert-failed'));
+  const readyTimes = scaledTargets.map((t) => t.report?.readyAfterSeconds).filter((n): n is number => n !== undefined);
+  event.report = {
+    extraInstanceHours: Math.round(scaledTargets.reduce((sum, t) => sum + Math.max(0, t.target.desired - t.baseline!.desired), 0) * hours * 10) / 10,
+    launches: scaledTargets.reduce((sum, t) => sum + (t.report?.launches ?? 0), 0),
+    failedLaunches: scaledTargets.reduce((sum, t) => sum + (t.report?.failedLaunches ?? 0), 0),
+    slowestReadySeconds: readyTimes.length ? Math.max(...readyTimes) : undefined,
+  };
   event.timeline.push(entry(failed ? 'error' : 'info', failed ? 'Some ASGs did not scale back. Check them now.' : 'Completed.'));
   await putEvent(event);
   await writeAudit({
@@ -199,6 +250,61 @@ export async function endEvent(tenantId: string, eventId: string, reason = 'Even
     actor: 'system',
     action: failed ? 'scale-event.failed' : 'scale-event.completed',
     result: failed ? 'failure' : 'success',
+    message: event.name,
+  });
+
+  const r = event.report;
+  const summary = [
+    `${r.launches} instances launched, ${r.failedLaunches} failed launches`,
+    r.slowestReadySeconds !== undefined ? `Capacity ready ${Math.round(r.slowestReadySeconds / 60)} min after scale-up` : 'Time to ready: not measured',
+    `≈ ${r.extraInstanceHours} extra instance-hours`,
+  ];
+  if (failed) {
+    await notify(tenantId, {
+      kind: 'failure',
+      level: 'error',
+      title: `Scale event "${event.name}": scale-back failed`,
+      lines: [...problemLines(event), ...summary],
+      incident: { id: `cloudops-${eventId}-end`, priority: 'HIGH', service: 'Cloud-Ops scale event' },
+    });
+  } else {
+    await notify(tenantId, { kind: 'event-completed', level: 'info', title: `Scale event "${event.name}" completed`, lines: summary });
+  }
+}
+
+/** Manually send a failed or troubled event to the customer's DevOps Agent. */
+export async function investigateEvent(tenant: Tenant, caller: Caller, eventId: string): Promise<void> {
+  const event = await getEvent(tenant.tenantId, eventId);
+  if (!event) throw new HttpError(404, 'Event not found.');
+  const settings = await getSettings(tenant.tenantId);
+  if (!settings.devopsAgent) throw new HttpError(400, 'Connect your AWS DevOps Agent in Settings first.');
+  const problems = problemLines(event);
+  if (problems.length === 0) throw new HttpError(400, 'This event has no warnings or errors to investigate.');
+
+  const lines = [
+    `Cloud-Ops scale event "${event.name}" (${event.status}).`,
+    ...event.targets.map((t) => `ASG ${t.asg.asgName} in account ${t.asg.accountId} ${t.asg.region}: target ${fmt(t.target)}, state ${t.state}${t.message ? `, ${t.message}` : ''}`),
+    'Problems:',
+    ...problems,
+  ];
+  try {
+    await sendToDevOpsAgent(settings.devopsAgent, {
+      kind: 'failure',
+      level: 'error',
+      title: `Scaling problem: ${event.name}`,
+      lines,
+      incident: { id: `cloudops-${eventId}-manual-${Date.now()}`, priority: 'HIGH', service: 'Cloud-Ops scale event' },
+    });
+  } catch (err) {
+    throw new HttpError(502, `DevOps Agent did not accept the investigation: ${(err as Error).message}`);
+  }
+  event.timeline.push(entry('info', `Sent to AWS DevOps Agent by ${caller.email}.`));
+  await putEvent(event);
+  await writeAudit({
+    tenantId: tenant.tenantId,
+    actor: { userId: caller.userId, email: caller.email },
+    action: 'devops-agent.investigation-sent',
+    result: 'success',
     message: event.name,
   });
 }

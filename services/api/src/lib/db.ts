@@ -8,6 +8,8 @@
  *   pk = TENANT#<tenantId>  sk = AUDIT#<time>#<id>    -> audit entry
  *   pk = TENANT#<tenantId>  sk = EVENT#<eventId>      -> scale event
  *   pk = TENANT#<tenantId>  sk = SCHEDULE#<id>        -> recurring schedule
+ *   pk = TENANT#<tenantId>  sk = SETTINGS             -> notifications and integrations
+ *   pk = TENANT#<tenantId>  sk = INSIGHTS             -> latest insights sweep
  */
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
@@ -16,11 +18,21 @@ import {
   GetCommand,
   PutCommand,
   QueryCommand,
+  ScanCommand,
   TransactWriteCommand,
   type QueryCommandInput,
 } from '@aws-sdk/lib-dynamodb';
 import { randomBytes, randomUUID } from 'node:crypto';
-import type { AuditEntry, AwsAccount, Membership, ScaleEvent, ScaleSchedule, Tenant } from '@cloud-ops/shared';
+import type {
+  AuditEntry,
+  AwsAccount,
+  InsightsReport,
+  Membership,
+  ScaleEvent,
+  ScaleSchedule,
+  Tenant,
+  WorkspaceSettings,
+} from '@cloud-ops/shared';
 
 const TABLE = requireEnv('TABLE_NAME');
 
@@ -199,4 +211,77 @@ export async function putSchedule(schedule: ScaleSchedule): Promise<void> {
 
 export async function deleteScheduleItem(tenantId: string, scheduleId: string): Promise<void> {
   await ddb.send(new DeleteCommand({ TableName: TABLE, Key: keys.schedule(tenantId, scheduleId) }));
+}
+
+// ---------------------------------------------------------------------------
+// Settings, insights, audit queries
+// ---------------------------------------------------------------------------
+
+export async function getSettingsItem(tenantId: string): Promise<WorkspaceSettings | undefined> {
+  const res = await ddb.send(new GetCommand({ TableName: TABLE, Key: { pk: `TENANT#${tenantId}`, sk: 'SETTINGS' } }));
+  return res.Item ? strip<WorkspaceSettings>(res.Item) : undefined;
+}
+
+export async function putSettingsItem(settings: WorkspaceSettings): Promise<void> {
+  await ddb.send(new PutCommand({ TableName: TABLE, Item: { pk: `TENANT#${settings.tenantId}`, sk: 'SETTINGS', ...settings } }));
+}
+
+export async function getInsightsReport(tenantId: string): Promise<InsightsReport | undefined> {
+  const res = await ddb.send(new GetCommand({ TableName: TABLE, Key: { pk: `TENANT#${tenantId}`, sk: 'INSIGHTS' } }));
+  return res.Item ? strip<InsightsReport>(res.Item) : undefined;
+}
+
+export async function putInsightsReport(report: InsightsReport): Promise<void> {
+  await ddb.send(new PutCommand({ TableName: TABLE, Item: { pk: `TENANT#${report.tenantId}`, sk: 'INSIGHTS', ...report } }));
+}
+
+/** Newest audit entries first. `cursor` is the sk of the last entry from the previous page. */
+export async function listAudit(
+  tenantId: string,
+  limit: number,
+  cursor?: string,
+): Promise<{ entries: AuditEntry[]; nextCursor?: string }> {
+  const res = await ddb.send(
+    new QueryCommand({
+      TableName: TABLE,
+      KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+      ExpressionAttributeValues: { ':pk': `TENANT#${tenantId}`, ':prefix': 'AUDIT#' },
+      ScanIndexForward: false,
+      Limit: limit,
+      ExclusiveStartKey: cursor ? { pk: `TENANT#${tenantId}`, sk: cursor } : undefined,
+    }),
+  );
+  const entries = (res.Items ?? []).map((i) => strip<AuditEntry>(i));
+  const last = res.LastEvaluatedKey?.sk;
+  return { entries, nextCursor: typeof last === 'string' ? last : undefined };
+}
+
+/** Audit entries since a point in time, oldest first. */
+export async function listAuditSince(tenantId: string, sinceIso: string): Promise<AuditEntry[]> {
+  const items = await queryAll({
+    TableName: TABLE,
+    KeyConditionExpression: 'pk = :pk AND sk BETWEEN :from AND :to',
+    ExpressionAttributeValues: { ':pk': `TENANT#${tenantId}`, ':from': `AUDIT#${sinceIso}`, ':to': 'AUDIT#~' },
+  });
+  return items.map((i) => strip<AuditEntry>(i));
+}
+
+/** Every tenant id (for the background sweep). Fine at this scale; add a GSI when tenants grow. */
+export async function listTenantIds(): Promise<string[]> {
+  const ids: string[] = [];
+  let ExclusiveStartKey: Record<string, unknown> | undefined;
+  do {
+    const page = await ddb.send(
+      new ScanCommand({
+        TableName: TABLE,
+        FilterExpression: 'sk = :meta AND begins_with(pk, :tenant)',
+        ExpressionAttributeValues: { ':meta': 'META', ':tenant': 'TENANT#' },
+        ProjectionExpression: 'tenantId',
+        ExclusiveStartKey,
+      }),
+    );
+    for (const item of page.Items ?? []) if (typeof item.tenantId === 'string') ids.push(item.tenantId);
+    ExclusiveStartKey = page.LastEvaluatedKey;
+  } while (ExclusiveStartKey);
+  return ids;
 }

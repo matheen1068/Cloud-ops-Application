@@ -24,6 +24,7 @@ import {
   writeAudit,
 } from './db.js';
 import { HttpError } from './http.js';
+import { notify } from './notify.js';
 import { cronAt, scheduleRecurring, unschedule } from './scheduler.js';
 import type { Caller } from './tenant.js';
 
@@ -38,6 +39,23 @@ function isTimezone(tz: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** One notification per run when some ASGs couldn't be switched. */
+async function reportErrors(schedule: ScaleSchedule, phase: 'off' | 'on'): Promise<void> {
+  const failed = schedule.targets.filter((t) => t.state === 'error');
+  if (failed.length === 0) return;
+  await notify(schedule.tenantId, {
+    kind: 'failure',
+    level: 'warn',
+    title: `Schedule "${schedule.name}": ${failed.length} ASG(s) could not switch ${phase}`,
+    lines: failed.map((t) => `${t.asg.asgName} (${t.asg.accountId}, ${t.asg.region}): ${t.message}`),
+    incident: {
+      id: `cloudops-${schedule.scheduleId}-${phase}-${new Date().toISOString().slice(0, 10)}`,
+      priority: 'MEDIUM',
+      service: 'Cloud-Ops schedule',
+    },
+  });
 }
 
 /** Keeps only the last 50 timeline entries so recurring schedules don't grow forever. */
@@ -151,6 +169,7 @@ export async function switchOff(tenantId: string, scheduleId: string): Promise<v
   if (changed > 0) {
     await writeAudit({ tenantId, actor: 'system', action: 'schedule.switched-off', result: 'success', message: `${schedule.name}: ${changed} ASGs` });
   }
+  await reportErrors(schedule, 'off');
 }
 
 /** Switch on: restore the capacity captured at switch-off. */
@@ -188,6 +207,7 @@ export async function switchOn(tenantId: string, scheduleId: string, schedule?: 
   if (changed > 0) {
     await writeAudit({ tenantId, actor: 'system', action: 'schedule.switched-on', result: 'success', message: `${schedule.name}: ${changed} ASGs` });
   }
+  await reportErrors(schedule, 'on');
 }
 
 /** Deletes a schedule. ASGs that are currently off are switched back on first. */

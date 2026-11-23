@@ -14,13 +14,20 @@ TypeScript Lambda handlers for the Cloud-Ops API. CDK bundles them with esbuild,
 | `POST /scale-events/{id}/cancel` | `events.ts` | Cancel a scheduled event, or end an active one now |
 | `GET/POST /schedules` | `schedules.ts` | List / create recurring off-hours schedules (days, on/off time, timezone) |
 | `DELETE /schedules/{id}` | `schedules.ts` | Delete a schedule (ASGs that are off are switched back on first) |
-| (EventBridge Scheduler) | `runner.ts` | Runs event start/end and schedule off/on. Idempotent, so scheduler retries are safe |
+| `POST /scale-events/{id}/investigate` | `events.ts` | Send an event's problems to the workspace's AWS DevOps Agent as a new investigation |
+| `GET/PUT /settings` | `settings.ts` | Notification channels (Slack webhook, email recipients, DevOps Agent webhook) and what to notify about. Secrets are stored but only returned masked. Changing settings needs owner or admin |
+| `POST /settings/test` | `settings.ts` | Send a test message to every connected channel and report the result per channel |
+| `GET /insights`, `POST /insights/run` | `insights.ts` | Last insights report, or run one now: manual scale-ups still in place after N hours, and ASGs averaging under 5% CPU for 24h |
+| `GET /audit?limit&cursor` | `audit.ts` | Activity log, newest first, paged |
+| (EventBridge Scheduler) | `runner.ts` | Runs event start/end and schedule off/on, plus the 6-hourly insights sweep across workspaces. Idempotent, so scheduler retries are safe |
+
+Notifications are best-effort: a failed Slack, email or DevOps Agent call never fails the scaling work. DevOps Agent calls are signed the way its generic webhook expects (HMAC-SHA256 over `<timestamp>:<body>`, Base64, in `x-amzn-event-signature`), or sent with a Bearer API key.
 
 ```
 src/
   handlers/   one file per Lambda
   lib/        http helpers, DynamoDB access, tenant/role checks, STS
-test/         handler tests against mocked AWS (no account needed): handlers.test.ts, phase1.test.ts
+test/         handler tests against mocked AWS (no account needed): handlers.test.ts, phase1.test.ts, phase2.test.ts
 ```
 
 ```bash

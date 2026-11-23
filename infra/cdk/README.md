@@ -6,10 +6,12 @@ AWS CDK (TypeScript) app for the Cloud-Ops platform. One stack, `CloudOps-<stage
 |---|---|---|
 | Data | DynamoDB, on-demand | Pay per request, $0 when idle. Backups only in prod |
 | Auth | Cognito, **Lite** plan | Free tier covers 10,000 monthly users |
-| API | API Gateway **HTTP API** + 4 Lambdas | HTTP API is the cheaper flavour; ARM Lambdas; throttled at 20 req/s |
+| API | API Gateway **HTTP API** + ARM Lambdas | HTTP API is the cheaper flavour; ARM Lambdas; throttled at 20 req/s |
 | Logs | CloudWatch Logs | Kept 1 week only |
 | Web app | S3 (private) + CloudFront | CloudFront's always-free tier: 1 TB and 10M requests a month |
 | Cost alert | AWS Budgets (whole account) | Budgets without actions are free |
+| Scheduling | EventBridge Scheduler | 14M invocations a month free; the insights sweep is 120 a month |
+| Email (optional) | Amazon SES | $0.10 per 1,000 emails; off unless you set a sender |
 
 There's no VPC, NAT gateway, load balancer or always-on server. Idle cost is about $0. In `dev`, everything is deleted by `cdk destroy`.
 
@@ -31,6 +33,19 @@ npm install
 cd infra/cdk && npx cdk bootstrap && cd ../..
 npm run deploy
 ```
+
+### Email notifications (optional)
+
+Slack and AWS DevOps Agent need nothing on the platform side. Email needs a sender address verified in SES in the platform region:
+
+```bash
+aws sesv2 create-email-identity --email-identity alerts@yourdomain.com
+echo 'export CLOUDOPS_SENDER_EMAIL=alerts@yourdomain.com' >> ~/.zshrc
+source ~/.zshrc
+npm run deploy
+```
+
+Click the link in the verification email first. While SES is in sandbox mode it only delivers to verified addresses, so verify each recipient too (or request production access).
 
 `npm run deploy` builds the web app and runs `cdk deploy`. The site, its `config.json` and a CloudFront cache refresh all go out together. Open the `WebUrl` output to use the app.
 

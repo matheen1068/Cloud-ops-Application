@@ -189,6 +189,14 @@ export type ScaleEventStatus =
 
 export type TargetState = 'pending' | 'scaled' | 'failed' | 'reverted' | 'revert-failed' | 'skipped';
 
+/** How the scale-up actually went for one ASG, measured from its scaling activities. */
+export interface TargetReport {
+  launches: number;
+  failedLaunches: number;
+  /** Seconds from scale-up until the last new instance finished launching. */
+  readyAfterSeconds?: number;
+}
+
 export interface ScaleTarget {
   asg: AsgRef;
   target: CapacitySettings;
@@ -196,6 +204,15 @@ export interface ScaleTarget {
   baseline?: CapacitySettings;
   state: TargetState;
   message?: string;
+  report?: TargetReport;
+}
+
+/** Post-event summary, written when the event ends. */
+export interface EventReport {
+  extraInstanceHours: number;
+  launches: number;
+  failedLaunches: number;
+  slowestReadySeconds?: number;
 }
 
 export interface TimelineEntry {
@@ -217,6 +234,9 @@ export interface ScaleEvent {
   endsAt: string;
   status: ScaleEventStatus;
   timeline: TimelineEntry[];
+  /** When scale-up actually ran. */
+  scaledUpAt?: string;
+  report?: EventReport;
   createdBy: string;
   createdAt: string;
 }
@@ -282,6 +302,76 @@ export function offShareOfWeek(days: Weekday[], onAt: string, offAt: string): nu
 }
 
 // ---------------------------------------------------------------------------
+// Workspace settings: notifications and integrations
+// ---------------------------------------------------------------------------
+
+export interface NotifyOn {
+  eventStarted: boolean;
+  eventCompleted: boolean;
+  failures: boolean;
+  leftovers: boolean;
+}
+
+export type DevOpsAgentAuth = 'hmac' | 'bearer';
+
+/** Stored settings. Secrets never leave the API; the browser gets a SettingsView. */
+export interface WorkspaceSettings {
+  tenantId: string;
+  slackWebhookUrl?: string;
+  emailRecipients: string[];
+  devopsAgent?: { webhookUrl: string; auth: DevOpsAgentAuth; secret: string };
+  notifyOn: NotifyOn;
+  /** Manual scale-ups older than this are flagged as possibly forgotten. */
+  leftoverHours: number;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+/** GET /settings */
+export interface SettingsView {
+  slack: { configured: boolean; hint?: string };
+  email: { available: boolean; recipients: string[] };
+  devopsAgent: { configured: boolean; auth?: DevOpsAgentAuth; hint?: string };
+  notifyOn: NotifyOn;
+  leftoverHours: number;
+}
+
+/** PUT /settings. Omit a field to keep it, send null to remove it. */
+export interface UpdateSettingsRequest {
+  slackWebhookUrl?: string | null;
+  emailRecipients?: string[];
+  devopsAgent?: { webhookUrl: string; auth: DevOpsAgentAuth; secret: string } | null;
+  notifyOn?: Partial<NotifyOn>;
+  leftoverHours?: number;
+}
+
+export const DEFAULT_NOTIFY_ON: NotifyOn = { eventStarted: true, eventCompleted: true, failures: true, leftovers: true };
+
+// ---------------------------------------------------------------------------
+// Insights: capacity left behind and idle fleets
+// ---------------------------------------------------------------------------
+
+export type InsightType = 'manual-scale-not-reverted' | 'idle';
+
+export interface Insight {
+  id: string; // type:asgKey, stable across sweeps
+  type: InsightType;
+  asg: AsgRef;
+  title: string;
+  detail: string;
+  since?: string;
+  /** Rough instance-hours spent on the extra/idle capacity so far. */
+  instanceHours?: number;
+}
+
+export interface InsightsReport {
+  tenantId: string;
+  generatedAt: string;
+  insights: Insight[];
+  errors: { accountId: string; region?: string; message: string }[];
+}
+
+// ---------------------------------------------------------------------------
 // Audit log
 // ---------------------------------------------------------------------------
 
@@ -298,7 +388,9 @@ export type AuditAction =
   | 'schedule.created'
   | 'schedule.deleted'
   | 'schedule.switched-off'
-  | 'schedule.switched-on';
+  | 'schedule.switched-on'
+  | 'settings.updated'
+  | 'devops-agent.investigation-sent';
 
 export interface AuditEntry {
   tenantId: string;
@@ -312,6 +404,12 @@ export interface AuditEntry {
   after?: CapacitySettings;
   result: 'success' | 'failure';
   message?: string;
+}
+
+/** GET /audit */
+export interface AuditPage {
+  entries: AuditEntry[];
+  nextCursor?: string;
 }
 
 // ---------------------------------------------------------------------------

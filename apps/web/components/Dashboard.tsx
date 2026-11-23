@@ -1,6 +1,7 @@
 
 import React from 'react';
 import { AWSAccount } from '../types';
+import Insights from './Insights';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 
 interface DashboardProps {
@@ -135,32 +136,7 @@ const Dashboard: React.FC<DashboardProps> = ({ accounts, onConnect }) => {
           </div>
         </div>
 
-        <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-center">
-          <h3 className="text-md font-black text-slate-800 mb-2 uppercase tracking-widest">Lambda Insights</h3>
-          <p className="text-xs font-medium text-slate-400 mb-6 uppercase tracking-tight">Cross-account state machine analysis</p>
-          <div className="space-y-4">
-            <div className="group flex gap-4 p-5 rounded-2xl bg-orange-50 border border-orange-100 hover:bg-orange-100/50 transition-colors">
-              <span className="text-2xl">⚡</span>
-              <div>
-                <p className="text-sm font-black text-orange-900 uppercase">{onDemand > 0 ? 'Spot opportunity' : 'No on-demand capacity running'}</p>
-                <p className="text-xs text-orange-700 font-medium mt-1">
-                  {onDemand > 0
-                    ? `${onDemand} on-demand ${onDemand === 1 ? 'instance is' : 'instances are'} running. Fault-tolerant workloads could move to Spot.`
-                    : 'Nothing to optimise right now.'}
-                </p>
-              </div>
-            </div>
-            <div className="group flex gap-4 p-5 rounded-2xl bg-slate-50 border border-slate-100 hover:bg-slate-100 transition-colors">
-              <span className="text-2xl">🛡️</span>
-              <div>
-                <p className="text-sm font-black text-slate-900 uppercase">Coverage</p>
-                <p className="text-xs text-slate-600 font-medium mt-1">
-                  Watching {asgs.length} Auto Scaling groups in {accounts.length} {accounts.length === 1 ? 'account' : 'accounts'} across {regions} {regions === 1 ? 'region' : 'regions'}.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
+        <Insights />
       </div>
     </div>
   );
