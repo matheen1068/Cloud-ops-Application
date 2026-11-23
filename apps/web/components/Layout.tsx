@@ -6,17 +6,22 @@ interface LayoutProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
   onLogout: () => void;
+  onRefresh: () => void;
+  refreshing: boolean;
   user: string;
+  subtitle: string;
 }
 
-const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLogout, user }) => {
+const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLogout, onRefresh, refreshing, user, subtitle }) => {
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: '📊' },
     { id: 'accounts', label: 'Account Explorer', icon: '🏢' },
-    { id: 'analytics', label: 'Analytics', icon: '📈' },
-    { id: 'balancer', label: 'Capacity Balancer', icon: '⚖️' },
-    { id: 'ai', label: 'Bedrock Advisor', icon: '✨' },
+    { id: 'connect', label: 'Connect Account', icon: '🔗' },
+    { id: 'analytics', label: 'Analytics', icon: '📈', preview: true },
+    { id: 'balancer', label: 'Capacity Balancer', icon: '⚖️', preview: true },
+    { id: 'ai', label: 'Bedrock Advisor', icon: '✨', preview: true },
   ];
+  const current = navItems.find((item) => item.id === activeTab) ?? navItems[0];
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
@@ -43,6 +48,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
             >
               <span>{item.icon}</span>
               <span className="font-bold text-sm tracking-tight">{item.label}</span>
+              {item.preview && <span className="ml-auto text-[9px] font-black uppercase opacity-60">Preview</span>}
             </button>
           ))}
         </nav>
@@ -58,7 +64,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-bold truncate">{user}</p>
-              <p className="text-xs text-slate-500 truncate">Cognito Auth</p>
+              <p className="text-xs text-slate-500 truncate capitalize">{subtitle}</p>
             </div>
             <button 
               onClick={onLogout}
@@ -76,7 +82,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
         <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 shrink-0">
           <div className="flex items-center gap-4">
             <h2 className="text-lg font-black text-slate-800 capitalize tracking-tight">
-              {activeTab.replace('-', ' ')}
+              {current.label}
             </h2>
             <div className="h-4 w-px bg-slate-300"></div>
             <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded border border-slate-200 font-black">
@@ -84,10 +90,14 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
             </span>
           </div>
           <div className="flex items-center gap-4">
-            <div className="relative flex items-center gap-2">
-              <span className="text-[10px] text-slate-400 font-bold">CROSS-ACCOUNT LAMBDA</span>
-              <span className="w-2 h-2 bg-green-500 rounded-full shadow-[0_0_8px_rgba(34,197,94,0.6)]"></span>
-            </div>
+            <button
+              onClick={onRefresh}
+              disabled={refreshing}
+              className="flex items-center gap-2 text-[10px] text-slate-500 font-black uppercase hover:text-orange-600 disabled:opacity-50"
+            >
+              <span className={refreshing ? 'animate-spin' : ''}>⟳</span>
+              {refreshing ? 'Syncing…' : 'Refresh'}
+            </button>
             <div className="h-8 w-px bg-slate-200"></div>
             <button className="text-sm text-orange-600 font-bold hover:underline">Help & Docs</button>
           </div>

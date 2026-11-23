@@ -1,13 +1,14 @@
 
 import React from 'react';
-import { AWSAccount, LifecycleType } from '../types';
+import { AWSAccount } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 
 interface DashboardProps {
   accounts: AWSAccount[];
+  onConnect: () => void;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ accounts }) => {
+const Dashboard: React.FC<DashboardProps> = ({ accounts, onConnect }) => {
   const getTotals = () => {
     let spot = 0;
     let onDemand = 0;
@@ -23,6 +24,10 @@ const Dashboard: React.FC<DashboardProps> = ({ accounts }) => {
   };
 
   const { spot, onDemand } = getTotals();
+  const asgs = accounts.flatMap((a) => a.asgs);
+  const desired = asgs.reduce((sum, g) => sum + g.capacity.desired, 0);
+  const inService = asgs.reduce((sum, g) => sum + g.inService, 0);
+  const regions = new Set(asgs.map((g) => g.region)).size;
   const data = [
     { name: 'Spot', value: spot, color: '#ea580c' },
     { name: 'On-Demand', value: onDemand, color: '#334155' },
@@ -30,6 +35,18 @@ const Dashboard: React.FC<DashboardProps> = ({ accounts }) => {
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
+      {accounts.length === 0 && (
+        <div className="bg-slate-900 text-white p-8 rounded-3xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
+          <div>
+            <h3 className="text-2xl font-black tracking-tight">Connect your first AWS account</h3>
+            <p className="text-sm text-slate-400 mt-1">Deploy one IAM role, paste its ARN, and every Auto Scaling group shows up here.</p>
+          </div>
+          <button onClick={onConnect} className="px-6 py-3 bg-orange-600 rounded-2xl text-xs font-black uppercase hover:bg-orange-700 transition-all">
+            Connect account
+          </button>
+        </div>
+      )}
+
       {/* Infrastructure Note */}
       <div className="bg-orange-50 border border-orange-100 p-4 rounded-2xl flex items-center gap-4">
         <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center text-xl shadow-sm border border-orange-100">📡</div>
@@ -45,7 +62,7 @@ const Dashboard: React.FC<DashboardProps> = ({ accounts }) => {
           <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-2">Total Fleet Instances</p>
           <div className="flex items-end gap-2">
             <span className="text-4xl font-black text-slate-900 tracking-tighter">{spot + onDemand}</span>
-            <span className="text-green-500 text-xs font-black mb-2 uppercase">Healthy</span>
+            <span className="text-green-500 text-xs font-black mb-2 uppercase">{inService} in service</span>
           </div>
           <div className="mt-6 flex items-center gap-4">
             <div className="flex items-center gap-1.5">
@@ -60,15 +77,14 @@ const Dashboard: React.FC<DashboardProps> = ({ accounts }) => {
         </div>
 
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:border-orange-200 transition-all">
-          <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-2">Cost Optimization</p>
+          <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-2">Desired Capacity</p>
           <div className="flex items-end gap-2">
-            <span className="text-4xl font-black text-slate-900 tracking-tighter">$1.4k</span>
-            <span className="text-slate-400 text-xs font-bold mb-2 uppercase">/ Monthly Saved</span>
+            <span className="text-4xl font-black text-slate-900 tracking-tighter">{desired}</span>
+            <span className="text-slate-400 text-xs font-bold mb-2 uppercase">instances</span>
           </div>
-          <div className="mt-6 w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-            <div className="bg-orange-500 h-full w-[72%] transition-all duration-1000"></div>
-          </div>
-          <p className="mt-3 text-[10px] text-slate-500 font-black uppercase tracking-widest">72% Optimized</p>
+          <p className="mt-6 text-[10px] text-slate-500 font-black uppercase tracking-widest">
+            {asgs.length} ASGs · {regions} {regions === 1 ? 'region' : 'regions'}
+          </p>
         </div>
 
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:border-orange-200 transition-all">
@@ -82,7 +98,7 @@ const Dashboard: React.FC<DashboardProps> = ({ accounts }) => {
           <div className="mt-6 flex flex-wrap gap-2">
             {accounts.map(acc => (
               <span key={acc.id} className="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-[9px] font-black text-slate-500 uppercase">
-                {acc.name.split('-')[0]}
+                {acc.name}
               </span>
             ))}
           </div>
@@ -126,15 +142,21 @@ const Dashboard: React.FC<DashboardProps> = ({ accounts }) => {
             <div className="group flex gap-4 p-5 rounded-2xl bg-orange-50 border border-orange-100 hover:bg-orange-100/50 transition-colors">
               <span className="text-2xl">⚡</span>
               <div>
-                <p className="text-sm font-black text-orange-900 uppercase">Efficiency Boost Required</p>
-                <p className="text-xs text-orange-700 font-medium mt-1">Prod-Core is running {onDemand} on-demand instances. Suggest transition to Spot to save ~60% overhead.</p>
+                <p className="text-sm font-black text-orange-900 uppercase">{onDemand > 0 ? 'Spot opportunity' : 'No on-demand capacity running'}</p>
+                <p className="text-xs text-orange-700 font-medium mt-1">
+                  {onDemand > 0
+                    ? `${onDemand} on-demand ${onDemand === 1 ? 'instance is' : 'instances are'} running. Fault-tolerant workloads could move to Spot.`
+                    : 'Nothing to optimise right now.'}
+                </p>
               </div>
             </div>
             <div className="group flex gap-4 p-5 rounded-2xl bg-slate-50 border border-slate-100 hover:bg-slate-100 transition-colors">
               <span className="text-2xl">🛡️</span>
               <div>
-                <p className="text-sm font-black text-slate-900 uppercase">Fleet Resilience High</p>
-                <p className="text-xs text-slate-600 font-medium mt-1">AWS multi-AZ strategy active across all child account ASGs. Interruption risk is minimized.</p>
+                <p className="text-sm font-black text-slate-900 uppercase">Coverage</p>
+                <p className="text-xs text-slate-600 font-medium mt-1">
+                  Watching {asgs.length} Auto Scaling groups in {accounts.length} {accounts.length === 1 ? 'account' : 'accounts'} across {regions} {regions === 1 ? 'region' : 'regions'}.
+                </p>
               </div>
             </div>
           </div>

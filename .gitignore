@@ -32,3 +32,7 @@ dist-ssr
 
 # CDK
 cdk.out/
+
+# Web app generated files
+apps/web/public/config.json
+apps/web/public/onboarding/

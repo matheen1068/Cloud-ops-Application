@@ -11,7 +11,8 @@
   "scripts": {
     "dev": "npm run dev -w @cloud-ops/web",
     "build": "npm run build --workspaces --if-present",
-    "lint": "npm run lint --workspaces --if-present"
+    "lint": "npm run lint --workspaces --if-present",
+    "deploy": "npm run build -w @cloud-ops/web && npm run deploy -w @cloud-ops/cdk --"
   },
   "devDependencies": {
     "typescript": "~5.8.2"

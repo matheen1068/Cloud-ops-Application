@@ -1,3 +1,6 @@
+// UI view models. Built from the API responses in lib/adapters.ts so the
+// existing components (dashboard, balancer, advisor) keep working.
+import type { AccessLevel, CapacitySettings } from '@cloud-ops/shared';
 
 export type LifecycleType = 'spot' | 'on-demand';
 
@@ -8,15 +11,21 @@ export interface InstanceMetrics {
 }
 
 export interface ASG {
-  id: string;
+  id: string; // accountId#region#name
   name: string;
   region: string;
+  accountId: string;
+  capacity: CapacitySettings;
+  inService: number;
+  managed: boolean; // tagged CloudOpsManaged=true
   metrics: InstanceMetrics[];
 }
 
 export interface AWSAccount {
   id: string;
   name: string;
+  accessLevel: AccessLevel;
+  regions: string[];
   asgs: ASG[];
 }
 
@@ -32,9 +41,4 @@ export interface Recommendation {
   description: string;
   potentialSavings: string;
   priority: 'low' | 'medium' | 'high';
-}
-
-export interface AuthState {
-  isAuthenticated: boolean;
-  user: string | null;
 }
