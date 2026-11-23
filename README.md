@@ -6,7 +6,7 @@ A SaaS for managing and scaling Auto Scaling groups across many AWS accounts fro
 
 ```
 apps/web/              React UI: Cognito sign-in, live accounts and ASGs, scale now
-services/api/          TypeScript Lambda handlers (/me, /accounts, /asgs, /asgs/capacity)
+services/api/          TypeScript Lambda handlers: accounts, ASGs, scale now, readiness, scale events, schedules
 packages/shared/       Types shared by web, API and infra
 infra/cdk/             AWS CDK app for the platform (serverless, ~$0 idle)
 infra/test-fixtures/   A $0 test ASG for trying the API
@@ -33,7 +33,7 @@ npm run dev
 
 The `config` step pulls the API and Cognito settings from your deployed `CloudOps-dev` stack. The app opens on http://localhost:3000.
 
-Live: sign-in/sign-up, Dashboard, Account Explorer (with Scale) and Connect Account. Analytics, Capacity Balancer and the AI advisor are still previews with sample data. The Gemini key (`apps/web/.env.local`) is only used by `npm run dev` and never goes into a production build.
+Live: sign-in/sign-up, Dashboard, Account Explorer (Scale with readiness check), Scale Events, Schedules and Connect Account. Analytics, Capacity Balancer and the AI advisor are still previews with sample data. The Gemini key (`apps/web/.env.local`) is only used by `npm run dev` and never goes into a production build.
 
 ## Deploy the platform
 

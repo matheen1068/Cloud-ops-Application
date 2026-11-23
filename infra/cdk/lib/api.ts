@@ -6,6 +6,7 @@ import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations
 import type { UserPool, UserPoolClient } from 'aws-cdk-lib/aws-cognito';
 import type { TableV2 } from 'aws-cdk-lib/aws-dynamodb';
 import { PolicyStatement, Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
+import { CfnScheduleGroup } from 'aws-cdk-lib/aws-scheduler';
 import { Architecture, Runtime } from 'aws-cdk-lib/aws-lambda';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
@@ -49,6 +50,38 @@ export class Api extends Construct {
     );
     props.table.grantReadWriteData(platformRole);
 
+    // ---- Scheduling: EventBridge Scheduler fires the runner Lambda ----
+    // Names are fixed and ARNs built as strings, so the roles, the runner and the
+    // policies never reference each other in a loop.
+    const scheduleGroup = new CfnScheduleGroup(this, 'ScheduleGroup', { name: `cloudops-${stage}` });
+    const runnerName = `cloudops-${stage}-runner`;
+    const runnerArn = `arn:${Aws.PARTITION}:lambda:${Aws.REGION}:${Aws.ACCOUNT_ID}:function:${runnerName}`;
+    const schedulerRoleName = `CloudOpsSchedulerRole-${stage}`;
+    const schedulerRoleArn = `arn:${Aws.PARTITION}:iam::${Aws.ACCOUNT_ID}:role/${schedulerRoleName}`;
+
+    const schedulerRole = new Role(this, 'SchedulerRole', {
+      roleName: schedulerRoleName,
+      assumedBy: new ServicePrincipal('scheduler.amazonaws.com', {
+        conditions: { StringEquals: { 'aws:SourceAccount': Aws.ACCOUNT_ID } },
+      }),
+      description: 'Lets EventBridge Scheduler invoke the Cloud-Ops runner Lambda.',
+    });
+    schedulerRole.addToPolicy(new PolicyStatement({ actions: ['lambda:InvokeFunction'], resources: [runnerArn] }));
+
+    platformRole.addToPolicy(
+      new PolicyStatement({
+        actions: ['scheduler:CreateSchedule', 'scheduler:DeleteSchedule', 'scheduler:GetSchedule'],
+        resources: [`arn:${Aws.PARTITION}:scheduler:${Aws.REGION}:${Aws.ACCOUNT_ID}:schedule/cloudops-${stage}/*`],
+      }),
+    );
+    platformRole.addToPolicy(
+      new PolicyStatement({
+        actions: ['iam:PassRole'],
+        resources: [schedulerRoleArn],
+        conditions: { StringEquals: { 'iam:PassedToService': 'scheduler.amazonaws.com' } },
+      }),
+    );
+
     const httpApi = new HttpApi(this, 'HttpApi', {
       apiName: `cloudops-${stage}`,
       createDefaultStage: false,
@@ -78,10 +111,13 @@ export class Api extends Construct {
       PLATFORM_ACCOUNT_ID: Aws.ACCOUNT_ID,
       PLATFORM_ROLE_NAME: this.platformRoleName,
       ACCESS_ROLE_NAME,
+      SCHEDULE_GROUP: scheduleGroup.name!,
+      SCHEDULER_ROLE_ARN: schedulerRoleArn,
+      RUNNER_ARN: runnerArn,
     };
 
     // TS: an arrow function stored in a const, reused for every Lambda.
-    const fn = (name: string, file: string) => {
+    const fn = (name: string, file: string, extra: { functionName?: string; timeout?: Duration } = {}) => {
       const logGroup = new LogGroup(this, `${name}Logs`, {
         retention: RetentionDays.ONE_WEEK, // logs are the classic slow cost leak
         removalPolicy: RemovalPolicy.DESTROY,
@@ -95,7 +131,8 @@ export class Api extends Construct {
         runtime: Runtime.NODEJS_22_X,
         architecture: Architecture.ARM_64, // Graviton: cheaper per ms than x86
         memorySize: 256,
-        timeout: Duration.seconds(29), // HTTP API waits at most 30s
+        functionName: extra.functionName,
+        timeout: extra.timeout ?? Duration.seconds(29), // HTTP API waits at most 30s
         role: platformRole,
         environment,
         logGroup,
@@ -108,13 +145,29 @@ export class Api extends Construct {
       { path: '/accounts', methods: [HttpMethod.GET, HttpMethod.POST], handler: fn('AccountsFn', 'accounts.ts') },
       { path: '/asgs', methods: [HttpMethod.GET], handler: fn('AsgsFn', 'asgs.ts') },
       { path: '/asgs/capacity', methods: [HttpMethod.PUT], handler: fn('CapacityFn', 'capacity.ts') },
+      { path: '/asgs/readiness', methods: [HttpMethod.POST], handler: fn('ReadinessFn', 'readiness.ts') },
     ];
+
+    const eventsFn = fn('EventsFn', 'events.ts');
+    const schedulesFn = fn('SchedulesFn', 'schedules.ts');
+    eventsFn.node.addDependency(scheduleGroup);
+    schedulesFn.node.addDependency(scheduleGroup);
+    routes.push(
+      { path: '/scale-events', methods: [HttpMethod.GET, HttpMethod.POST], handler: eventsFn },
+      { path: '/scale-events/{eventId}/cancel', methods: [HttpMethod.POST], handler: eventsFn },
+      { path: '/schedules', methods: [HttpMethod.GET, HttpMethod.POST], handler: schedulesFn },
+      { path: '/schedules/{scheduleId}', methods: [HttpMethod.DELETE], handler: schedulesFn },
+    );
+
+    // Not behind the API: only EventBridge Scheduler invokes it (via schedulerRole).
+    const runner = fn('RunnerFn', 'runner.ts', { functionName: runnerName, timeout: Duration.minutes(2) });
+    runner.node.addDependency(scheduleGroup);
 
     for (const route of routes) {
       httpApi.addRoutes({
         path: route.path,
         methods: route.methods,
-        integration: new HttpLambdaIntegration(`${route.handler.node.id}Integration`, route.handler),
+        integration: new HttpLambdaIntegration(`${route.handler.node.id}${route.path.replace(/[^A-Za-z]/g, '')}`, route.handler),
         authorizer,
       });
     }

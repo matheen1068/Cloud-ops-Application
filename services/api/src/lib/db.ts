@@ -6,9 +6,12 @@
  *   pk = TENANT#<tenantId>  sk = META                 -> tenant
  *   pk = TENANT#<tenantId>  sk = ACCOUNT#<accountId>  -> connected AWS account
  *   pk = TENANT#<tenantId>  sk = AUDIT#<time>#<id>    -> audit entry
+ *   pk = TENANT#<tenantId>  sk = EVENT#<eventId>      -> scale event
+ *   pk = TENANT#<tenantId>  sk = SCHEDULE#<id>        -> recurring schedule
  */
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
+  DeleteCommand,
   DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
@@ -17,7 +20,7 @@ import {
   type QueryCommandInput,
 } from '@aws-sdk/lib-dynamodb';
 import { randomBytes, randomUUID } from 'node:crypto';
-import type { AuditEntry, AwsAccount, Membership, Tenant } from '@cloud-ops/shared';
+import type { AuditEntry, AwsAccount, Membership, ScaleEvent, ScaleSchedule, Tenant } from '@cloud-ops/shared';
 
 const TABLE = requireEnv('TABLE_NAME');
 
@@ -37,6 +40,8 @@ const keys = {
   tenant: (tenantId: string) => ({ pk: `TENANT#${tenantId}`, sk: 'META' }),
   account: (tenantId: string, accountId: string) => ({ pk: `TENANT#${tenantId}`, sk: `ACCOUNT#${accountId}` }),
   audit: (tenantId: string, at: string, auditId: string) => ({ pk: `TENANT#${tenantId}`, sk: `AUDIT#${at}#${auditId}` }),
+  event: (tenantId: string, eventId: string) => ({ pk: `TENANT#${tenantId}`, sk: `EVENT#${eventId}` }),
+  schedule: (tenantId: string, scheduleId: string) => ({ pk: `TENANT#${tenantId}`, sk: `SCHEDULE#${scheduleId}` }),
 };
 
 /** Removes the table keys before an item leaves the API. */
@@ -154,4 +159,44 @@ export async function writeAudit(entry: Omit<AuditEntry, 'auditId' | 'at'>): Pro
       Item: { ...keys.audit(entry.tenantId, at, auditId), ...entry, auditId, at },
     }),
   );
+}
+
+// ---------------------------------------------------------------------------
+// Scale events and recurring schedules
+// ---------------------------------------------------------------------------
+
+async function listByPrefix<T>(tenantId: string, prefix: string): Promise<T[]> {
+  const items = await queryAll({
+    TableName: TABLE,
+    KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+    ExpressionAttributeValues: { ':pk': `TENANT#${tenantId}`, ':prefix': prefix },
+  });
+  return items.map((i) => strip<T>(i));
+}
+
+export const listEvents = (tenantId: string) => listByPrefix<ScaleEvent>(tenantId, 'EVENT#');
+export const listSchedules = (tenantId: string) => listByPrefix<ScaleSchedule>(tenantId, 'SCHEDULE#');
+
+export async function getEvent(tenantId: string, eventId: string): Promise<ScaleEvent | undefined> {
+  const res = await ddb.send(new GetCommand({ TableName: TABLE, Key: keys.event(tenantId, eventId) }));
+  return res.Item ? strip<ScaleEvent>(res.Item) : undefined;
+}
+
+export async function putEvent(event: ScaleEvent): Promise<void> {
+  await ddb.send(new PutCommand({ TableName: TABLE, Item: { ...keys.event(event.tenantId, event.eventId), ...event } }));
+}
+
+export async function getSchedule(tenantId: string, scheduleId: string): Promise<ScaleSchedule | undefined> {
+  const res = await ddb.send(new GetCommand({ TableName: TABLE, Key: keys.schedule(tenantId, scheduleId) }));
+  return res.Item ? strip<ScaleSchedule>(res.Item) : undefined;
+}
+
+export async function putSchedule(schedule: ScaleSchedule): Promise<void> {
+  await ddb.send(
+    new PutCommand({ TableName: TABLE, Item: { ...keys.schedule(schedule.tenantId, schedule.scheduleId), ...schedule } }),
+  );
+}
+
+export async function deleteScheduleItem(tenantId: string, scheduleId: string): Promise<void> {
+  await ddb.send(new DeleteCommand({ TableName: TABLE, Key: keys.schedule(tenantId, scheduleId) }));
 }
