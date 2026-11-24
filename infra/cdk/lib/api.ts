@@ -27,6 +27,8 @@ interface ApiProps {
   webUrl: string;
   /** Verified SES sender for email notifications. Email is off when missing. */
   senderEmail?: string;
+  /** People who run this deployment: see every workspace and change plans. */
+  operatorEmails?: string;
 }
 
 /** HTTP API + Lambdas. HTTP API is the cheaper API Gateway flavour, and it validates Cognito JWTs for free. */
@@ -120,6 +122,7 @@ export class Api extends Construct {
       SCHEDULER_ROLE_ARN: schedulerRoleArn,
       RUNNER_ARN: runnerArn,
       ...(props.senderEmail ? { SENDER_EMAIL: props.senderEmail } : {}),
+      ...(props.operatorEmails ? { OPERATOR_EMAILS: props.operatorEmails } : {}),
     };
 
     // Email notifications through SES, only from the one verified sender address.
@@ -161,6 +164,7 @@ export class Api extends Construct {
     const accountsFn = fn('AccountsFn', 'accounts.ts');
     const membersFn = fn('MembersFn', 'members.ts');
     const clientsFn = fn('ClientsFn', 'clients.ts');
+    const platformFn = fn('PlatformFn', 'platform.ts');
     // Approving runs the change itself (Scale Now, create event or schedule): a few seconds.
     const approvalsFn = fn('ApprovalsFn', 'approvals.ts');
     const routes: { path: string; methods: HttpMethod[]; handler: NodejsFunction }[] = [
@@ -171,6 +175,9 @@ export class Api extends Construct {
       { path: '/accounts/{accountId}/discover', methods: [HttpMethod.POST], handler: accountsFn },
       { path: '/accounts/bulk', methods: [HttpMethod.POST], handler: accountsFn },
       { path: '/clients', methods: [HttpMethod.GET, HttpMethod.POST], handler: clientsFn },
+      { path: '/plan', methods: [HttpMethod.GET], handler: platformFn },
+      { path: '/platform/tenants', methods: [HttpMethod.GET], handler: platformFn },
+      { path: '/platform/tenants/{tenantId}', methods: [HttpMethod.PUT], handler: platformFn },
       { path: '/clients/{clientId}', methods: [HttpMethod.PUT, HttpMethod.DELETE], handler: clientsFn },
       { path: '/members', methods: [HttpMethod.GET], handler: membersFn },
       { path: '/members/invites', methods: [HttpMethod.POST], handler: membersFn },

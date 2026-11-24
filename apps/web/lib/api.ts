@@ -1,5 +1,8 @@
 // Typed client for the Cloud-Ops API. Request/response types are shared with the Lambdas.
 import type {
+  PlanId,
+  PlanUsage,
+  PlatformTenant,
   BulkConnectRequest,
   BulkConnectResponse,
   Client,
@@ -100,6 +103,11 @@ export const api = {
 
   discoverOrg: (managementAccountId: string) => request<DiscoveryResult>('POST', `/accounts/${managementAccountId}/discover`),
   bulkConnect: (req: BulkConnectRequest) => request<BulkConnectResponse>('POST', '/accounts/bulk', req),
+
+  getPlan: () => request<{ usage: PlanUsage }>('GET', '/plan'),
+  listPlatformTenants: () => request<{ tenants: PlatformTenant[] }>('GET', '/platform/tenants'),
+  setTenantPlan: (tenantId: string, plan: PlanId) =>
+    request<{ tenant: { tenantId: string; plan: PlanId } }>('PUT', `/platform/tenants/${encodeURIComponent(tenantId)}`, { plan }),
 
   listClients: () => request<{ clients: ClientView[] }>('GET', '/clients'),
   createClient: (name: string) => request<{ client: Client }>('POST', '/clients', { name }),

@@ -18,6 +18,8 @@ TypeScript Lambda handlers for the Cloud-Ops API. CDK bundles them with esbuild,
 | `POST /accounts/{accountId}/discover` | `accounts.ts` | From a management account (role deployed with `IsOrgManagementAccount=true`): walk the OU tree and report each member account as connected, ready (role found), no-role or suspended |
 | `POST /accounts/bulk` | `accounts.ts` | Connect up to 50 discovered accounts at once, each with an optional client. Counts against the plan's account limit |
 | `GET/POST /clients`, `PUT/DELETE /clients/{id}` | `clients.ts` | MSP plan: client groups. Deleting one unassigns its accounts |
+| `GET /plan` | `platform.ts` | The workspace's plan, limits and usage (accounts, users incl. pending invites) |
+| `GET /platform/tenants`, `PUT /platform/tenants/{id}` | `platform.ts` | Platform operator only (`OPERATOR_EMAILS`, verified email): every workspace, and plan changes (audited in that workspace) |
 | `POST /accounts` | `accounts.ts` | Connect an account: assumes `CloudOpsAccessRole` with the workspace's external ID and checks the account ID |
 | `GET /asgs` | `asgs.ts` | Every ASG across connected accounts and regions, with Spot/On-Demand split. Failures per account/region are returned in `errors` |
 | `GET /ecs-services` | `ecs.ts` | Every ECS service across connected accounts and regions, with its Application Auto Scaling range. Accounts whose role predates ECS support come back in `notEnabled` |
@@ -48,7 +50,7 @@ Notifications are best-effort: a failed Slack, email or DevOps Agent call never 
 src/
   handlers/   one file per Lambda
   lib/        http helpers, DynamoDB access, tenant/role checks, STS
-test/         handler tests against mocked AWS (no account needed): handlers.test.ts, phase1.test.ts, phase2.test.ts, phase3-teams.test.ts, phase3-msp.test.ts, phase3-ecs.test.ts
+test/         handler tests against mocked AWS (no account needed): handlers.test.ts, phase1.test.ts, phase2.test.ts, phase3-teams.test.ts, phase3-msp.test.ts, phase3-ecs.test.ts, phase3-plans.test.ts
 ```
 
 ```bash
