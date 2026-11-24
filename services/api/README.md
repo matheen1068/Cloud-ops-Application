@@ -14,7 +14,10 @@ TypeScript Lambda handlers for the Cloud-Ops API. CDK bundles them with esbuild,
 | `GET /approvals` | `approvals.ts` | Approval requests, newest first |
 | `POST /approvals/{id}/approve\|reject\|cancel` | `approvals.ts` | Another owner/admin approves and the change runs as the requester. Owners can approve their own with `breakGlassReason` (emergency, audited) |
 | `GET /accounts` | `accounts.ts` | Connected AWS accounts |
-| `PUT /accounts/{accountId}` | `accounts.ts` | Rename, change regions, or set `requireApproval` (admins) |
+| `PUT /accounts/{accountId}` | `accounts.ts` | Rename, change regions, set `requireApproval`, or assign a client (admins) |
+| `POST /accounts/{accountId}/discover` | `accounts.ts` | From a management account (role deployed with `IsOrgManagementAccount=true`): walk the OU tree and report each member account as connected, ready (role found), no-role or suspended |
+| `POST /accounts/bulk` | `accounts.ts` | Connect up to 50 discovered accounts at once, each with an optional client. Counts against the plan's account limit |
+| `GET/POST /clients`, `PUT/DELETE /clients/{id}` | `clients.ts` | MSP plan: client groups. Deleting one unassigns its accounts |
 | `POST /accounts` | `accounts.ts` | Connect an account: assumes `CloudOpsAccessRole` with the workspace's external ID and checks the account ID |
 | `GET /asgs` | `asgs.ts` | Every ASG across connected accounts and regions, with Spot/On-Demand split. Failures per account/region are returned in `errors` |
 | `PUT /asgs/capacity` | `capacity.ts` | Scale now: min/desired/max on one ASG, with before/after written to the audit log |
@@ -32,6 +35,8 @@ TypeScript Lambda handlers for the Cloud-Ops API. CDK bundles them with esbuild,
 
 **Approvals.** On accounts with `requireApproval`, Scale Now, new scale events and new schedules return **202** with `{ approval }` instead of applying. Requests expire after 24 hours, or when an event's pre-scale would start. Approving is a conditional write, so two admins can't apply the same request twice.
 
+**Client scoping (MSP).** An operator or viewer can be limited to some clients (`clientIds` on the invite or `PUT /members/{userId}`). They then only see and act on those clients' accounts, and the events, schedules, approvals, insights and activity that touch them. Hidden accounts answer 404. Owners and admins always see everything.
+
 **Invites.** A brand-new user whose verified email has a pending invite joins that workspace instead of getting their own. Existing users see the invite in `GET /me` and accept it.
 
 Notifications are best-effort: a failed Slack, email or DevOps Agent call never fails the scaling work. DevOps Agent calls are signed the way its generic webhook expects (HMAC-SHA256 over `<timestamp>:<body>`, Base64, in `x-amzn-event-signature`), or sent with a Bearer API key.
@@ -40,7 +45,7 @@ Notifications are best-effort: a failed Slack, email or DevOps Agent call never 
 src/
   handlers/   one file per Lambda
   lib/        http helpers, DynamoDB access, tenant/role checks, STS
-test/         handler tests against mocked AWS (no account needed): handlers.test.ts, phase1.test.ts, phase2.test.ts, phase3-teams.test.ts
+test/         handler tests against mocked AWS (no account needed): handlers.test.ts, phase1.test.ts, phase2.test.ts, phase3-teams.test.ts, phase3-msp.test.ts
 ```
 
 ```bash

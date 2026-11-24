@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import type { CreateInviteResponse, MeResponse, TeamView, UserRole } from '@cloud-ops/shared';
+import type { ClientView, CreateInviteResponse, Member, MeResponse, TeamView, UserRole } from '@cloud-ops/shared';
 import { api } from '../lib/api';
 
 const ROLES: { id: UserRole; label: string; help: string }[] = [
@@ -11,7 +11,40 @@ const ROLES: { id: UserRole; label: string; help: string }[] = [
 const inputClass =
   'px-4 py-3 rounded-xl border border-slate-200 text-sm font-medium bg-slate-50/50 focus:outline-none focus:ring-2 focus:ring-orange-500/50';
 
-const Team: React.FC<{ me: MeResponse; onLeft: () => void }> = ({ me, onLeft }) => {
+/** Pick clients; an empty selection means every client. */
+const ClientPicker: React.FC<{ clients: ClientView[]; value: string[]; onChange: (ids: string[]) => void }> = ({ clients, value, onChange }) => (
+  <div className="flex flex-wrap gap-2">
+    <button
+      type="button"
+      onClick={() => onChange([])}
+      className={`px-3 py-1 rounded-full text-[11px] font-black uppercase border ${value.length === 0 ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-500 border-slate-200'}`}
+    >
+      All clients
+    </button>
+    {clients.map((c) => {
+      const on = value.includes(c.clientId);
+      return (
+        <button
+          key={c.clientId}
+          type="button"
+          onClick={() => onChange(on ? value.filter((v) => v !== c.clientId) : [...value, c.clientId])}
+          className={`px-3 py-1 rounded-full text-[11px] font-black uppercase border ${on ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-500 border-slate-200'}`}
+        >
+          {c.name}
+        </button>
+      );
+    })}
+  </div>
+);
+
+const limitable = (role: UserRole) => role === 'operator' || role === 'viewer';
+
+const Team: React.FC<{ me: MeResponse; clients: ClientView[]; onLeft: () => void }> = ({ me, clients, onLeft }) => {
+  const [inviteClients, setInviteClients] = useState<string[]>([]);
+  const [access, setAccess] = useState<{ userId: string; ids: string[] } | null>(null);
+  const clientGroups = me.tenant.limits.clientGroups && clients.length > 0;
+  const accessLabel = (m: Member) =>
+    m.clientIds ? m.clientIds.map((id) => clients.find((c) => c.clientId === id)?.name ?? 'deleted client').join(', ') : 'All clients';
   const [team, setTeam] = useState<TeamView | null>(null);
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<UserRole>('operator');
@@ -50,8 +83,9 @@ const Team: React.FC<{ me: MeResponse; onLeft: () => void }> = ({ me, onLeft }) 
 
   const sendInvite = () =>
     run(async () => {
-      setSent(await api.invite({ email: email.trim(), role }));
+      setSent(await api.invite({ email: email.trim(), role, clientIds: clientGroups && limitable(role) && inviteClients.length ? inviteClients : undefined }));
       setEmail('');
+      setInviteClients([]);
       setCopied(false);
     });
 
@@ -94,6 +128,12 @@ const Team: React.FC<{ me: MeResponse; onLeft: () => void }> = ({ me, onLeft }) 
             </button>
           </div>
           <p className="text-xs text-slate-400">{ROLES.find((r) => r.id === role)?.help}</p>
+          {clientGroups && limitable(role) && (
+            <div className="space-y-2">
+              <p className="text-[10px] font-black uppercase text-slate-400">Can access</p>
+              <ClientPicker clients={clients} value={inviteClients} onChange={setInviteClients} />
+            </div>
+          )}
           {sent && (
             <div className="p-4 rounded-2xl bg-green-50 border border-green-100 space-y-2">
               <p className="text-sm font-bold text-green-900">
@@ -126,6 +166,29 @@ const Team: React.FC<{ me: MeResponse; onLeft: () => void }> = ({ me, onLeft }) 
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-bold text-slate-800 truncate">{m.email}{self && <span className="text-slate-400 font-medium"> (you)</span>}</p>
                 {m.joinedAt && <p className="text-xs text-slate-400">Joined {new Date(m.joinedAt).toLocaleDateString()}</p>}
+                {clientGroups && limitable(m.role) && access?.userId !== m.userId && (
+                  <button
+                    disabled={!canEdit}
+                    onClick={() => setAccess({ userId: m.userId, ids: m.clientIds ?? [] })}
+                    className="text-xs text-indigo-600 font-bold disabled:text-slate-400"
+                  >
+                    🗂️ {accessLabel(m)}
+                  </button>
+                )}
+                {access?.userId === m.userId && (
+                  <div className="mt-2 space-y-2">
+                    <ClientPicker clients={clients} value={access.ids} onChange={(ids) => setAccess({ ...access, ids })} />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => run(async () => { await api.updateMember(m.userId, { clientIds: access.ids.length ? access.ids : null }); setAccess(null); })}
+                        className="px-3 py-1 rounded-lg text-[11px] font-black uppercase bg-slate-900 text-white"
+                      >
+                        Save access
+                      </button>
+                      <button onClick={() => setAccess(null)} className="px-3 py-1 rounded-lg text-[11px] font-black uppercase text-slate-500">Cancel</button>
+                    </div>
+                  </div>
+                )}
               </div>
               {canEdit ? (
                 <select

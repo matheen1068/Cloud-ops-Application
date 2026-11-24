@@ -14,6 +14,7 @@
  *   pk = TENANT#<tenantId>  sk = INVITE#<inviteId>    -> invite
  *   pk = INVITEE#<email>    sk = INVITE#<t>#<id>      -> pointer: invites waiting for an email
  *   pk = TENANT#<tenantId>  sk = APPROVAL#<id>        -> approval request (ids sort by time)
+ *   pk = TENANT#<tenantId>  sk = CLIENT#<clientId>    -> MSP client group
  */
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
@@ -30,6 +31,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import type {
   ApprovalRequest,
   AuditEntry,
+  Client,
   Invite,
   Member,
   AwsAccount,
@@ -65,6 +67,7 @@ const keys = {
   invite: (tenantId: string, inviteId: string) => ({ pk: `TENANT#${tenantId}`, sk: `INVITE#${inviteId}` }),
   invitee: (email: string, tenantId: string, inviteId: string) => ({ pk: `INVITEE#${email}`, sk: `INVITE#${tenantId}#${inviteId}` }),
   approval: (tenantId: string, requestId: string) => ({ pk: `TENANT#${tenantId}`, sk: `APPROVAL#${requestId}` }),
+  client: (tenantId: string, clientId: string) => ({ pk: `TENANT#${tenantId}`, sk: `CLIENT#${clientId}` }),
 };
 
 /** Ids that sort by creation time (newest last), for approvals. */
@@ -187,6 +190,20 @@ export async function listInvitesForEmail(email: string): Promise<Invite[]> {
   });
   const invites = await Promise.all(pointers.map((p) => getInvite(p.tenantId as string, p.inviteId as string)));
   return invites.filter((i): i is Invite => !!i && i.status === 'pending');
+}
+
+// ---------------------------------------------------------------------------
+// MSP clients
+// ---------------------------------------------------------------------------
+
+export const listClients = (tenantId: string) => listByPrefix<Client>(tenantId, 'CLIENT#');
+
+export async function putClient(c: Client): Promise<void> {
+  await ddb.send(new PutCommand({ TableName: TABLE, Item: { ...keys.client(c.tenantId, c.clientId), ...c } }));
+}
+
+export async function deleteClient(tenantId: string, clientId: string): Promise<void> {
+  await ddb.send(new DeleteCommand({ TableName: TABLE, Key: keys.client(tenantId, clientId) }));
 }
 
 // ---------------------------------------------------------------------------

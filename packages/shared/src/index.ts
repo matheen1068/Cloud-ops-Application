@@ -92,6 +92,54 @@ export interface UpdateAccountRequest {
   alias?: string;
   regions?: string[];
   requireApproval?: boolean;
+  /** MSP plans: assign to a client, or null to unassign. */
+  clientId?: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Organization discovery: find member accounts from the management account
+// ---------------------------------------------------------------------------
+
+/**
+ * connected: already in Cloud-Ops. ready: CloudOpsAccessRole answered (StackSet deployed).
+ * no-role: the role isn't there yet. suspended: closed or suspended in AWS.
+ */
+export type DiscoveredStatus = 'connected' | 'ready' | 'no-role' | 'suspended';
+
+export interface DiscoveredAccount {
+  accountId: string;
+  name: string;
+  ouPath: string; // e.g. "Root / Clients / Acme"
+  status: DiscoveredStatus;
+  message?: string;
+}
+
+export interface DiscoveryResult {
+  organizationId?: string;
+  managementAccountId: string;
+  accounts: DiscoveredAccount[];
+  /** More accounts or OUs than one scan handles; the rest weren't checked. */
+  truncated?: boolean;
+}
+
+export interface BulkConnectRequest {
+  accounts: { accountId: string; alias: string; clientId?: string }[];
+  accessLevel?: AccessLevel; // how the StackSet deployed the role
+  regions?: string[];
+}
+
+export interface BulkConnectResponse {
+  connected: AwsAccount[];
+  failed: { accountId: string; message: string }[];
+}
+
+/** POST /clients and PUT /clients/{clientId} body. */
+export interface ClientRequest {
+  name: string;
+}
+
+export interface ClientView extends Client {
+  accountCount: number;
 }
 
 /** POST /accounts body: connect an account after the customer created the role. */
@@ -436,7 +484,10 @@ export type AuditAction =
   | 'approval.approved'
   | 'approval.rejected'
   | 'approval.cancelled'
-  | 'approval.break-glass';
+  | 'approval.break-glass'
+  | 'client.created'
+  | 'client.updated'
+  | 'client.deleted';
 
 export interface AuditEntry {
   tenantId: string;
@@ -500,7 +551,14 @@ export interface Invite {
 export interface CreateInviteRequest {
   email: string;
   role: UserRole;
+  /** MSP plans, operators and viewers only: limit them to these clients. */
   clientIds?: string[];
+}
+
+/** PUT /members/{userId}. clientIds null = sees every client. */
+export interface UpdateMemberRequest {
+  role?: UserRole;
+  clientIds?: string[] | null;
 }
 
 export interface Member extends Membership {

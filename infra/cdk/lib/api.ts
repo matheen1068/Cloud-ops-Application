@@ -160,6 +160,7 @@ export class Api extends Construct {
     const meFn = fn('MeFn', 'me.ts');
     const accountsFn = fn('AccountsFn', 'accounts.ts');
     const membersFn = fn('MembersFn', 'members.ts');
+    const clientsFn = fn('ClientsFn', 'clients.ts');
     // Approving runs the change itself (Scale Now, create event or schedule): a few seconds.
     const approvalsFn = fn('ApprovalsFn', 'approvals.ts');
     const routes: { path: string; methods: HttpMethod[]; handler: NodejsFunction }[] = [
@@ -167,6 +168,10 @@ export class Api extends Construct {
       { path: '/me/workspace', methods: [HttpMethod.POST], handler: meFn },
       { path: '/accounts', methods: [HttpMethod.GET, HttpMethod.POST], handler: accountsFn },
       { path: '/accounts/{accountId}', methods: [HttpMethod.PUT], handler: accountsFn },
+      { path: '/accounts/{accountId}/discover', methods: [HttpMethod.POST], handler: accountsFn },
+      { path: '/accounts/bulk', methods: [HttpMethod.POST], handler: accountsFn },
+      { path: '/clients', methods: [HttpMethod.GET, HttpMethod.POST], handler: clientsFn },
+      { path: '/clients/{clientId}', methods: [HttpMethod.PUT, HttpMethod.DELETE], handler: clientsFn },
       { path: '/members', methods: [HttpMethod.GET], handler: membersFn },
       { path: '/members/invites', methods: [HttpMethod.POST], handler: membersFn },
       { path: '/members/invites/{inviteId}', methods: [HttpMethod.DELETE], handler: membersFn },

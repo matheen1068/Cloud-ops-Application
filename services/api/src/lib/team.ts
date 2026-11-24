@@ -16,6 +16,7 @@ import {
   type PendingInvite,
   type TeamView,
   type Tenant,
+  type UpdateMemberRequest,
   type UserRole,
   type WorkspaceRef,
 } from '@cloud-ops/shared';
@@ -32,6 +33,7 @@ import {
   setActiveTenantId,
   writeAudit,
 } from './db.js';
+import { validClientIds } from './clients.js';
 import { HttpError } from './http.js';
 import type { Caller } from './tenant.js';
 
@@ -76,6 +78,11 @@ export async function createInvite(
   if (!EMAIL.test(email) || email.length > 254) throw new HttpError(400, 'Enter a valid email address.');
   if (!ROLES.includes(req.role)) throw new HttpError(400, 'role must be owner, admin, operator or viewer.');
   if (req.role === 'owner' && membership.role !== 'owner') throw new HttpError(403, 'Only owners can invite owners.');
+  let clientIds: string[] | undefined;
+  if (req.clientIds !== undefined && req.clientIds !== null) {
+    if (ADMINS.includes(req.role)) throw new HttpError(400, 'Owners and admins always see every client. Limit operators or viewers instead.');
+    clientIds = await validClientIds(tenant, req.clientIds);
+  }
 
   const { members, invites } = await teamView(tenant, membership);
   if (members.some((m) => m.email.toLowerCase() === email)) throw new HttpError(409, `${email} is already in this workspace.`);
@@ -92,6 +99,7 @@ export async function createInvite(
     tenantId: tenant.tenantId,
     email,
     role: req.role,
+    clientIds,
     invitedBy: actorOf(caller),
     createdAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + INVITE_DAYS * 86_400_000).toISOString(),
@@ -192,28 +200,40 @@ export async function declineInvite(caller: Caller, inviteId: string): Promise<v
   await putInvite({ ...invite, status: 'declined' });
 }
 
-export async function updateMemberRole(
+export async function updateMember(
   tenant: Tenant,
   caller: Caller,
   membership: Membership,
   userId: string,
-  role: UserRole,
+  req: UpdateMemberRequest,
 ): Promise<Member> {
   requireAdmin(membership);
-  if (!ROLES.includes(role)) throw new HttpError(400, 'role must be owner, admin, operator or viewer.');
   const target = await getMembership(userId, tenant.tenantId);
   if (!target) throw new HttpError(404, 'That person is not in this workspace.');
+  const role = req.role ?? target.role;
+  if (!ROLES.includes(role)) throw new HttpError(400, 'role must be owner, admin, operator or viewer.');
   if ((role === 'owner' || target.role === 'owner') && membership.role !== 'owner') {
     throw new HttpError(403, 'Only owners can make or change owners.');
   }
   if (target.role === 'owner' && role !== 'owner' && !(await otherOwnerExists(tenant.tenantId, userId))) {
     throw new HttpError(409, 'A workspace needs at least one owner. Make someone else owner first.');
   }
-  const updated: Member = { ...target, role };
+  // Owners and admins always see every client; others can be limited.
+  let clientIds = target.clientIds;
+  if (ADMINS.includes(role)) {
+    if (req.clientIds) throw new HttpError(400, 'Owners and admins always see every client. Limit operators or viewers instead.');
+    clientIds = undefined;
+  } else if (req.clientIds === null) {
+    clientIds = undefined;
+  } else if (req.clientIds !== undefined) {
+    clientIds = await validClientIds(tenant, req.clientIds);
+  }
+  const updated: Member = { ...target, role, clientIds };
   await putMembership(updated);
+  const scope = clientIds ? `${clientIds.length} client${clientIds.length === 1 ? '' : 's'}` : 'all clients';
   await writeAudit({
     tenantId: tenant.tenantId, actor: actorOf(caller), action: 'member.role-changed',
-    result: 'success', message: `${target.email}: ${target.role} → ${role}`,
+    result: 'success', message: `${target.email}: ${target.role} → ${role}, ${scope}`,
   });
   return updated;
 }
