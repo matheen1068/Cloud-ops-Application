@@ -1,5 +1,11 @@
 // Typed client for the Cloud-Ops API. Request/response types are shared with the Lambdas.
 import type {
+  BulkConnectRequest,
+  BulkConnectResponse,
+  Client,
+  ClientView,
+  DiscoveryResult,
+  UpdateMemberRequest,
   ApprovalDecisionRequest,
   ApprovalRequest,
   CreateInviteRequest,
@@ -87,6 +93,16 @@ export const api = {
   revokeInvite: (inviteId: string) => request<{ revoked: string }>('DELETE', `/members/invites/${encodeURIComponent(inviteId)}`),
   setMemberRole: (userId: string, role: UserRole) =>
     request<{ member: Member }>('PUT', `/members/${encodeURIComponent(userId)}`, { role }),
+  updateMember: (userId: string, req: UpdateMemberRequest) =>
+    request<{ member: Member }>('PUT', `/members/${encodeURIComponent(userId)}`, req),
+
+  discoverOrg: (managementAccountId: string) => request<DiscoveryResult>('POST', `/accounts/${managementAccountId}/discover`),
+  bulkConnect: (req: BulkConnectRequest) => request<BulkConnectResponse>('POST', '/accounts/bulk', req),
+
+  listClients: () => request<{ clients: ClientView[] }>('GET', '/clients'),
+  createClient: (name: string) => request<{ client: Client }>('POST', '/clients', { name }),
+  renameClient: (clientId: string, name: string) => request<{ client: Client }>('PUT', `/clients/${encodeURIComponent(clientId)}`, { name }),
+  deleteClient: (clientId: string) => request<{ deleted: string }>('DELETE', `/clients/${encodeURIComponent(clientId)}`),
   removeMember: (userId: string) => request<{ removed: string }>('DELETE', `/members/${encodeURIComponent(userId)}`),
   acceptInvite: (inviteId: string) => request<{ tenantId: string }>('POST', `/invites/${encodeURIComponent(inviteId)}/accept`),
   declineInvite: (inviteId: string) => request<{ declined: string }>('POST', `/invites/${encodeURIComponent(inviteId)}/decline`),

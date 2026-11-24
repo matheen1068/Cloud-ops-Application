@@ -5,6 +5,7 @@
 import type { ApprovalDecisionRequest } from '@cloud-ops/shared';
 import { decide, listApprovalsView } from '../lib/approvals.js';
 import { handle, HttpError, json, type ApiEvent } from '../lib/http.js';
+import { filterByAccounts, visibleAccountIds } from '../lib/scope.js';
 import { getCaller, resolveTenant } from '../lib/tenant.js';
 
 const ACTIONS = { approve: 'approve', reject: 'reject', cancel: 'cancel' } as const;
@@ -23,7 +24,8 @@ export const handler = handle(async (event) => {
   const { tenant, membership } = await resolveTenant(caller);
 
   if (event.routeKey === 'GET /approvals') {
-    return json(200, { approvals: await listApprovalsView(tenant.tenantId) });
+    const visible = await visibleAccountIds(tenant.tenantId, membership);
+    return json(200, { approvals: filterByAccounts(await listApprovalsView(tenant.tenantId), visible, (a) => a.accountIds) });
   }
   const action = ACTIONS[event.routeKey.split('/').pop() as keyof typeof ACTIONS];
   const id = event.pathParameters?.requestId;

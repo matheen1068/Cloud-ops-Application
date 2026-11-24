@@ -3,7 +3,8 @@
 import type { CapacityChangeRequest } from '@cloud-ops/shared';
 import { approvalGate, describeCapacity } from '../lib/approvals.js';
 import { applyCapacityChange, capacityAccount, validateCapacityRequest } from '../lib/capacity.js';
-import { handle, json, parseBody } from '../lib/http.js';
+import { handle, HttpError, json, parseBody } from '../lib/http.js';
+import { canSeeAccount } from '../lib/scope.js';
 import { getCaller, OPERATOR_ROLES, requireRole, resolveTenant } from '../lib/tenant.js';
 
 export const handler = handle(async (event) => {
@@ -14,6 +15,7 @@ export const handler = handle(async (event) => {
   const req = parseBody<CapacityChangeRequest>(event);
   validateCapacityRequest(req);
   const account = await capacityAccount(tenant.tenantId, req.asg.accountId);
+  if (!canSeeAccount(membership, account)) throw new HttpError(404, 'That account is not connected.');
 
   await approvalGate(tenant, caller, 'capacity', req, (accounts) => describeCapacity(req, accounts))([account.accountId]);
   return json(200, await applyCapacityChange(tenant, account, caller, req));

@@ -1,3 +1,4 @@
+import type { ClientView } from '@cloud-ops/shared';
 import React, { useState } from 'react';
 import { validateCapacity, type CapacitySettings, type ReadinessResult } from '@cloud-ops/shared';
 import { api } from '../lib/api';
@@ -11,13 +12,17 @@ interface AccountExplorerProps {
   onConnect: () => void;
   canAdmin?: boolean;
   onToggleApproval?: (accountId: string, requireApproval: boolean) => Promise<void>;
+  clients?: ClientView[];
 }
 
-const AccountExplorer: React.FC<AccountExplorerProps> = ({ accounts, canOperate, onScale, onConnect, canAdmin, onToggleApproval }) => {
+const AccountExplorer: React.FC<AccountExplorerProps> = ({ accounts: allAccounts, canOperate, onScale, onConnect, canAdmin, onToggleApproval, clients = [] }) => {
   const [toggling, setToggling] = useState<string | null>(null);
+  const [clientFilter, setClientFilter] = useState('');
+  const clientName = (id?: string) => clients.find((c) => c.clientId === id)?.name;
+  const accounts = clientFilter === '' ? allAccounts : allAccounts.filter((a) => (clientFilter === 'none' ? !a.clientId : a.clientId === clientFilter));
   const [expandedAccount, setExpandedAccount] = useState<string | null>(accounts[0]?.id || null);
 
-  if (accounts.length === 0) {
+  if (allAccounts.length === 0) {
     return (
       <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center space-y-4">
         <p className="text-4xl">🏢</p>
@@ -32,6 +37,17 @@ const AccountExplorer: React.FC<AccountExplorerProps> = ({ accounts, canOperate,
 
   return (
     <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
+      {clients.length > 0 && (
+        <div className="flex items-center gap-3">
+          <span className="text-[10px] font-black uppercase text-slate-400">Client</span>
+          <select value={clientFilter} onChange={(e) => setClientFilter(e.target.value)} className="px-3 py-2 rounded-lg border border-slate-200 text-sm font-bold bg-white">
+            <option value="">All clients</option>
+            {clients.map((c) => <option key={c.clientId} value={c.clientId}>{c.name}</option>)}
+            <option value="none">Not assigned</option>
+          </select>
+          <span className="text-xs text-slate-400">{accounts.length} of {allAccounts.length} accounts</span>
+        </div>
+      )}
       {accounts.map((account) => (
         <div
           key={account.id}
@@ -53,6 +69,9 @@ const AccountExplorer: React.FC<AccountExplorerProps> = ({ accounts, canOperate,
               </div>
             </div>
             <div className="flex items-center gap-6">
+              {clientName(account.clientId) && (
+                <span className="px-2 py-1 rounded text-[10px] font-black uppercase bg-indigo-50 text-indigo-700">{clientName(account.clientId)}</span>
+              )}
               {account.requireApproval && (
                 <span className="px-2 py-1 rounded text-[10px] font-black uppercase bg-amber-50 text-amber-700">🔒 Needs approval</span>
               )}

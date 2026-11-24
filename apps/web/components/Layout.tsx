@@ -50,6 +50,7 @@ const Layout: React.FC<LayoutProps> = ({
     { id: 'accounts', label: 'Account Explorer', icon: '🏢' },
     { id: 'events', label: 'Scale Events', icon: '🗓️' },
     { id: 'schedules', label: 'Schedules', icon: '🌙' },
+    ...(me?.tenant.limits.clientGroups ? [{ id: 'clients', label: 'Clients', icon: '🗂️' }] : []),
     { id: 'connect', label: 'Connect Account', icon: '🔗' },
     { id: 'approvals', label: 'Approvals', icon: '✅' },
     { id: 'team', label: 'Team', icon: '👥' },

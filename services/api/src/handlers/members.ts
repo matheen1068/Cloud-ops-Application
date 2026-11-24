@@ -1,11 +1,11 @@
 // GET    /members                      team and pending invites
 // POST   /members/invites              invite someone by email (owners and admins)
 // DELETE /members/invites/{inviteId}   revoke an invite
-// PUT    /members/{userId}             change someone's role: { role }
+// PUT    /members/{userId}             change role and client access: { role?, clientIds? }
 // DELETE /members/{userId}             remove someone (or yourself: leave the workspace)
 // POST   /invites/{inviteId}/accept    join a workspace you were invited to
 // POST   /invites/{inviteId}/decline
-import type { CreateInviteRequest, UserRole } from '@cloud-ops/shared';
+import type { CreateInviteRequest, UpdateMemberRequest } from '@cloud-ops/shared';
 import { handle, HttpError, json, parseBody } from '../lib/http.js';
 import {
   acceptInviteById,
@@ -14,7 +14,7 @@ import {
   removeMember,
   revokeInvite,
   teamView,
-  updateMemberRole,
+  updateMember,
 } from '../lib/team.js';
 import { getCaller, resolveTenant } from '../lib/tenant.js';
 
@@ -42,10 +42,8 @@ export const handler = handle(async (event) => {
     case 'DELETE /members/invites/{inviteId}':
       await revokeInvite(tenant, caller, membership, p.inviteId ?? '');
       return json(200, { revoked: p.inviteId });
-    case 'PUT /members/{userId}': {
-      const { role } = parseBody<{ role: UserRole }>(event);
-      return json(200, { member: await updateMemberRole(tenant, caller, membership, p.userId ?? '', role) });
-    }
+    case 'PUT /members/{userId}':
+      return json(200, { member: await updateMember(tenant, caller, membership, p.userId ?? '', parseBody<UpdateMemberRequest>(event)) });
     case 'DELETE /members/{userId}':
       await removeMember(tenant, caller, membership, p.userId ?? '');
       return json(200, { removed: p.userId });

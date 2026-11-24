@@ -27,6 +27,8 @@ export interface AWSAccount {
   accessLevel: AccessLevel;
   regions: string[];
   requireApproval?: boolean;
+  clientId?: string;
+  connectionMethod?: 'single-account' | 'organization';
   asgs: ASG[];
 }
 

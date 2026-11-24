@@ -4,11 +4,12 @@ import { ClientPool } from '../lib/capacity.js';
 import { getAccount } from '../lib/db.js';
 import { handle, HttpError, json, parseBody } from '../lib/http.js';
 import { checkReadiness } from '../lib/readiness.js';
+import { canSeeAccount } from '../lib/scope.js';
 import { getCaller, resolveTenant } from '../lib/tenant.js';
 import type { ReadinessRequest, ReadinessResult } from '@cloud-ops/shared';
 
 export const handler = handle(async (event) => {
-  const { tenant } = await resolveTenant(getCaller(event));
+  const { tenant, membership } = await resolveTenant(getCaller(event));
   const req = parseBody<ReadinessRequest>(event);
   if (!Array.isArray(req.targets) || req.targets.length < 1 || req.targets.length > 20) {
     throw new HttpError(400, 'Send 1-20 targets.');
@@ -21,7 +22,7 @@ export const handler = handle(async (event) => {
         return { asg, checks: [{ id: 'input', status: 'fail', title: 'Invalid target', detail: 'Needs accountId, region, asgName and capacity.' }] };
       }
       const account = await getAccount(tenant.tenantId, asg.accountId);
-      if (!account || account.status !== 'connected') {
+      if (!account || account.status !== 'connected' || !canSeeAccount(membership, account)) {
         return { asg, checks: [{ id: 'account', status: 'fail', title: 'Account not connected', detail: asg.accountId }] };
       }
       try {

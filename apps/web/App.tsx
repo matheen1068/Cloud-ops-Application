@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import type { CapacitySettings, MeResponse } from '@cloud-ops/shared';
+import type { CapacitySettings, ClientView, MeResponse } from '@cloud-ops/shared';
 import Layout from './components/Layout';
 import Dashboard from './components/Dashboard';
 import AccountExplorer from './components/AccountExplorer';
@@ -10,6 +10,8 @@ import Activity from './components/Activity';
 import Settings from './components/Settings';
 import Team from './components/Team';
 import Approvals from './components/Approvals';
+import Clients from './components/Clients';
+import OrgDiscovery from './components/OrgDiscovery';
 import Analytics from './components/Analytics';
 import CapacityBalancer from './components/CapacityBalancer';
 import AIAdvisor from './components/AIAdvisor';
@@ -22,12 +24,13 @@ import type { ASG, AWSAccount } from './types';
 interface FleetState {
   me: MeResponse | null;
   accounts: AWSAccount[];
+  clients: ClientView[]; // MSP plan only
   warnings: string[]; // per-account/region problems from /asgs
   loading: boolean;
   error: string | null;
 }
 
-const EMPTY: FleetState = { me: null, accounts: [], warnings: [], loading: false, error: null };
+const EMPTY: FleetState = { me: null, accounts: [], clients: [], warnings: [], loading: false, error: null };
 
 const App: React.FC = () => {
   // undefined = still checking for an existing session
@@ -44,10 +47,15 @@ const App: React.FC = () => {
     try {
       // /me first: on a brand-new user it creates the workspace.
       const me = await api.me();
-      const [{ accounts }, asgs] = await Promise.all([api.listAccounts(), api.listAsgs()]);
+      const [{ accounts }, asgs, { clients }] = await Promise.all([
+        api.listAccounts(),
+        api.listAsgs(),
+        me.tenant.limits.clientGroups ? api.listClients() : Promise.resolve({ clients: [] as ClientView[] }),
+      ]);
       setFleet({
         me,
         accounts: toUiAccounts(accounts, asgs.asgs),
+        clients,
         warnings: asgs.errors.map((e) => `${e.accountId}${e.region ? ` (${e.region})` : ''}: ${e.message}`),
         loading: false,
         error: null,
@@ -135,6 +143,7 @@ const App: React.FC = () => {
             onConnect={() => setActiveTab('connect')}
             canAdmin={canAdmin}
             onToggleApproval={toggleApproval}
+            clients={fleet.clients}
           />
         );
       case 'events':
@@ -144,13 +153,16 @@ const App: React.FC = () => {
       case 'activity':
         return <Activity />;
       case 'team':
-        return fleet.me ? <Team me={fleet.me} onLeft={refresh} /> : null;
+        return fleet.me ? <Team me={fleet.me} clients={fleet.clients} onLeft={refresh} /> : null;
+      case 'clients':
+        return <Clients clients={fleet.clients} accounts={fleet.accounts} canEdit={canAdmin} onChanged={refresh} />;
       case 'approvals':
         return fleet.me ? <Approvals me={fleet.me} onChanged={refresh} /> : null;
       case 'settings':
         return <Settings canEdit={role === 'owner' || role === 'admin'} />;
       case 'connect':
         return (
+          <>
           <ConnectAccount
             onboarding={fleet.me?.onboarding}
             onConnected={async () => {
@@ -158,6 +170,15 @@ const App: React.FC = () => {
               setActiveTab('accounts');
             }}
           />
+            {canAdmin && (
+              <OrgDiscovery
+                accounts={fleet.accounts}
+                clients={fleet.clients}
+                clientGroups={!!fleet.me?.tenant.limits.clientGroups}
+                onConnected={refresh}
+              />
+            )}
+          </>
         );
       case 'analytics':
         return <Analytics />;

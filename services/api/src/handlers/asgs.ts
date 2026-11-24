@@ -10,14 +10,15 @@ import type { AutoScalingGroupSummary, AwsAccount, ListAsgsResponse } from '@clo
 import { assumeAccessRole, type TempCredentials } from '../lib/aws.js';
 import { listAccounts } from '../lib/db.js';
 import { handle, json } from '../lib/http.js';
+import { canSeeAccount } from '../lib/scope.js';
 import { getCaller, resolveTenant } from '../lib/tenant.js';
 
 export const handler = handle(async (event) => {
-  const { tenant } = await resolveTenant(getCaller(event));
+  const { tenant, membership } = await resolveTenant(getCaller(event));
   const onlyAccount = event.queryStringParameters?.accountId;
 
   const accounts = (await listAccounts(tenant.tenantId)).filter(
-    (a) => a.status === 'connected' && (!onlyAccount || a.accountId === onlyAccount),
+    (a) => a.status === 'connected' && canSeeAccount(membership, a) && (!onlyAccount || a.accountId === onlyAccount),
   );
 
   const result: ListAsgsResponse = { asgs: [], errors: [] };
