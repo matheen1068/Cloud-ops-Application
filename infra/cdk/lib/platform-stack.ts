@@ -14,6 +14,7 @@ export interface PlatformStackProps extends StackProps {
   monthlyBudgetUsd: number;
   allowedOrigins: string[];
   senderEmail?: string;
+  operatorEmails?: string;
 }
 
 /**
@@ -39,6 +40,7 @@ export class PlatformStack extends Stack {
       allowedOrigins: [...props.allowedOrigins, web.url],
       webUrl: web.url,
       senderEmail: props.senderEmail,
+      operatorEmails: props.operatorEmails,
     });
 
     // The hosted app reads its API and Cognito settings from config.json.

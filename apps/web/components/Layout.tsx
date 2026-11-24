@@ -56,6 +56,7 @@ const Layout: React.FC<LayoutProps> = ({
     { id: 'team', label: 'Team', icon: '👥' },
     { id: 'activity', label: 'Activity', icon: '📜' },
     { id: 'settings', label: 'Settings', icon: '⚙️' },
+    ...(me?.platformOperator ? [{ id: 'platform', label: 'Platform', icon: '🛰️' }] : []),
     { id: 'analytics', label: 'Analytics', icon: '📈', preview: true },
     { id: 'balancer', label: 'Capacity Balancer', icon: '⚖️', preview: true },
     { id: 'ai', label: 'Bedrock Advisor', icon: '✨', preview: true },

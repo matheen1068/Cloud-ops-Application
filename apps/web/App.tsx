@@ -12,6 +12,8 @@ import Team from './components/Team';
 import Approvals from './components/Approvals';
 import Clients from './components/Clients';
 import OrgDiscovery from './components/OrgDiscovery';
+import PlanCard from './components/PlanCard';
+import Platform from './components/Platform';
 import Analytics from './components/Analytics';
 import CapacityBalancer from './components/CapacityBalancer';
 import AIAdvisor from './components/AIAdvisor';
@@ -160,7 +162,14 @@ const App: React.FC = () => {
       case 'approvals':
         return fleet.me ? <Approvals me={fleet.me} onChanged={refresh} /> : null;
       case 'settings':
-        return <Settings canEdit={role === 'owner' || role === 'admin'} />;
+        return (
+          <>
+            <PlanCard key={fleet.me?.tenant.tenantId} />
+            <Settings canEdit={role === 'owner' || role === 'admin'} />
+          </>
+        );
+      case 'platform':
+        return fleet.me?.platformOperator ? <Platform /> : null;
       case 'connect':
         return (
           <>

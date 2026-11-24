@@ -174,6 +174,8 @@ export interface MeResponse {
   tenant: { tenantId: string; name: string; plan: PlanId; limits: PlanLimits };
   workspaces: WorkspaceRef[];
   invites: PendingInvite[];
+  /** Runs this Cloud-Ops deployment (OPERATOR_EMAILS): can see all workspaces and change plans. */
+  platformOperator?: boolean;
   onboarding?: {
     platformAccountId: string;
     platformRoleName: string;
@@ -526,7 +528,8 @@ export type AuditAction =
   | 'approval.break-glass'
   | 'client.created'
   | 'client.updated'
-  | 'client.deleted';
+  | 'client.deleted'
+  | 'plan.changed';
 
 export interface AuditEntry {
   tenantId: string;
@@ -664,3 +667,27 @@ export interface ApprovalDecisionRequest {
 export interface PendingApprovalResponse {
   approval: ApprovalRequest;
 }
+
+// ---------------------------------------------------------------------------
+// Plans: usage for customers, plan changes for the platform operator
+// ---------------------------------------------------------------------------
+
+export interface PlanUsage {
+  plan: PlanId;
+  limits: PlanLimits;
+  accounts: number;
+  users: number; // members + pending invites
+}
+
+/** One workspace as the platform operator sees it. */
+export interface PlatformTenant {
+  tenantId: string;
+  name: string;
+  plan: PlanId;
+  createdAt: string;
+  owners: string[];
+  accounts: number;
+  members: number;
+}
+
+export const PLAN_IDS: PlanId[] = ['free', 'pro', 'msp'];

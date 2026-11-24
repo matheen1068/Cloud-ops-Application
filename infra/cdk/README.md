@@ -34,6 +34,18 @@ cd infra/cdk && npx cdk bootstrap && cd ../..
 npm run deploy
 ```
 
+### Platform operator
+
+You (whoever runs this deployment) can see every workspace and change plans from a **Platform** page in the app, until billing does it automatically. Set your email once, the same way as the budget email:
+
+```bash
+echo 'export CLOUDOPS_OPERATOR_EMAILS=you@example.com' >> ~/.zshrc
+source ~/.zshrc
+npm run deploy
+```
+
+Several people: separate the emails with commas. The email must be the one you sign in with, and Cognito must have verified it.
+
 ### Email notifications (optional)
 
 Slack and AWS DevOps Agent need nothing on the platform side. Email needs a sender address verified in SES in the platform region:

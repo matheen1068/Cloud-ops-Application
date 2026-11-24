@@ -4,6 +4,7 @@
 import { PLAN_LIMITS, type MeResponse } from '@cloud-ops/shared';
 import { requireEnv } from '../lib/db.js';
 import { handle, HttpError, json, parseBody } from '../lib/http.js';
+import { isOperator } from '../lib/plans.js';
 import { pendingInvitesFor, switchWorkspace, workspacesFor } from '../lib/team.js';
 import { ADMIN_ROLES, getCaller, resolveTenant } from '../lib/tenant.js';
 
@@ -29,6 +30,7 @@ export const handler = handle(async (event) => {
     },
     workspaces,
     invites: await pendingInvitesFor(caller, workspaces.map((w) => w.tenantId)),
+    platformOperator: isOperator(caller) || undefined,
     onboarding: ADMIN_ROLES.includes(membership.role)
       ? {
           platformAccountId: requireEnv('PLATFORM_ACCOUNT_ID'),

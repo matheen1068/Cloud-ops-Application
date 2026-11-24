@@ -423,6 +423,29 @@ export async function listAuditSince(tenantId: string, sinceIso: string): Promis
 }
 
 /** Every tenant id (for the background sweep). Fine at this scale; add a GSI when tenants grow. */
+/** Every workspace (Scan). Fine at hundreds of tenants; move to a GSI before thousands. */
+export async function listTenants(): Promise<Tenant[]> {
+  const tenants: Tenant[] = [];
+  let ExclusiveStartKey: Record<string, unknown> | undefined;
+  do {
+    const page = await ddb.send(
+      new ScanCommand({
+        TableName: TABLE,
+        FilterExpression: 'sk = :meta AND begins_with(pk, :tenant)',
+        ExpressionAttributeValues: { ':meta': 'META', ':tenant': 'TENANT#' },
+        ExclusiveStartKey,
+      }),
+    );
+    tenants.push(...(page.Items ?? []).map((i) => strip<Tenant>(i)));
+    ExclusiveStartKey = page.LastEvaluatedKey;
+  } while (ExclusiveStartKey);
+  return tenants;
+}
+
+export async function putTenant(t: Tenant): Promise<void> {
+  await ddb.send(new PutCommand({ TableName: TABLE, Item: { ...keys.tenant(t.tenantId), ...t } }));
+}
+
 export async function listTenantIds(): Promise<string[]> {
   const ids: string[] = [];
   let ExclusiveStartKey: Record<string, unknown> | undefined;
