@@ -1,6 +1,12 @@
 // GET /accounts: list connected accounts.
 // POST /accounts: connect an account (the customer already created CloudOpsAccessRole).
-import { PLAN_LIMITS, type AwsAccount, type ConnectAccountRequest } from '@cloud-ops/shared';
+// PUT /accounts/{accountId}: rename, change regions, turn approvals on or off (admins).
+import {
+  PLAN_LIMITS,
+  type AwsAccount,
+  type ConnectAccountRequest,
+  type UpdateAccountRequest,
+} from '@cloud-ops/shared';
 import {
   accountIdFromRoleArn,
   accountIdOf,
@@ -8,7 +14,7 @@ import {
   REGION_PATTERN,
   ROLE_ARN_PATTERN,
 } from '../lib/aws.js';
-import { listAccounts, putAccount, writeAudit } from '../lib/db.js';
+import { getAccount, listAccounts, putAccount, writeAudit } from '../lib/db.js';
 import { handle, HttpError, json, parseBody } from '../lib/http.js';
 import { ADMIN_ROLES, getCaller, requireRole, resolveTenant } from '../lib/tenant.js';
 
@@ -19,6 +25,38 @@ export const handler = handle(async (event) => {
 
   if (event.requestContext.http.method === 'GET') {
     return json(200, { accounts: existing });
+  }
+
+  if (event.requestContext.http.method === 'PUT') {
+    requireRole(membership, ADMIN_ROLES);
+    const account = await getAccount(tenant.tenantId, event.pathParameters?.accountId ?? '');
+    if (!account) throw new HttpError(404, 'That account is not connected.');
+    const req = parseBody<UpdateAccountRequest>(event);
+    const changes: string[] = [];
+    if (req.alias !== undefined) {
+      const alias = typeof req.alias === 'string' ? req.alias.trim() : '';
+      if (alias.length < 1 || alias.length > 64) throw new HttpError(400, 'alias must be 1-64 characters.');
+      changes.push(`alias "${account.alias}" → "${alias}"`);
+      account.alias = alias;
+    }
+    if (req.regions !== undefined) {
+      if (!Array.isArray(req.regions) || req.regions.length === 0 || req.regions.some((r) => typeof r !== 'string' || !REGION_PATTERN.test(r))) {
+        throw new HttpError(400, 'regions must be a non-empty list of region names.');
+      }
+      account.regions = [...new Set(req.regions)];
+      changes.push(`regions ${account.regions.join(', ')}`);
+    }
+    if (req.requireApproval !== undefined) {
+      if (typeof req.requireApproval !== 'boolean') throw new HttpError(400, 'requireApproval must be true or false.');
+      account.requireApproval = req.requireApproval || undefined;
+      changes.push(req.requireApproval ? 'approvals required' : 'approvals off');
+    }
+    await putAccount(account);
+    await writeAudit({
+      tenantId: tenant.tenantId, actor: { userId: caller.userId, email: caller.email },
+      action: 'account.updated', accountId: account.accountId, result: 'success', message: changes.join(', '),
+    });
+    return json(200, { account });
   }
 
   // POST: connect
@@ -68,6 +106,8 @@ export const handler = handle(async (event) => {
     connectionMethod: 'single-account',
     status: 'connected',
     regions: [...new Set(regions)],
+    // Reconnecting keeps the approval setting.
+    requireApproval: existing.find((a) => a.accountId === accountId)?.requireApproval,
     lastCheckedAt: new Date().toISOString(),
   };
   await putAccount(account);

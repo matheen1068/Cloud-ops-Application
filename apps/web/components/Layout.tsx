@@ -1,5 +1,32 @@
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import type { MeResponse } from '@cloud-ops/shared';
+import { onNotice } from '../lib/notice';
+
+/** One-line messages from anywhere in the app (e.g. "Sent for approval"). */
+const NoticeBar: React.FC = () => {
+  const [text, setText] = useState<string | null>(null);
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    const off = onNotice((t) => {
+      setText(t);
+      clearTimeout(timer);
+      timer = setTimeout(() => setText(null), 12_000);
+    });
+    return () => {
+      off();
+      clearTimeout(timer);
+    };
+  }, []);
+  if (!text) return null;
+  return (
+    <div className="mb-6 p-4 rounded-2xl bg-amber-50 border border-amber-200 text-sm font-medium text-amber-900 flex items-start gap-3">
+      <span>🔒</span>
+      <span className="flex-1">{text}</span>
+      <button onClick={() => setText(null)} className="text-amber-600 font-black">✕</button>
+    </div>
+  );
+};
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -10,15 +37,22 @@ interface LayoutProps {
   refreshing: boolean;
   user: string;
   subtitle: string;
+  me?: MeResponse | null;
+  onSwitchWorkspace?: (tenantId: string) => void;
+  onInvite?: (inviteId: string, accept: boolean) => void;
 }
 
-const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLogout, onRefresh, refreshing, user, subtitle }) => {
+const Layout: React.FC<LayoutProps> = ({
+  children, activeTab, setActiveTab, onLogout, onRefresh, refreshing, user, subtitle, me, onSwitchWorkspace, onInvite,
+}) => {
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: '📊' },
     { id: 'accounts', label: 'Account Explorer', icon: '🏢' },
     { id: 'events', label: 'Scale Events', icon: '🗓️' },
     { id: 'schedules', label: 'Schedules', icon: '🌙' },
     { id: 'connect', label: 'Connect Account', icon: '🔗' },
+    { id: 'approvals', label: 'Approvals', icon: '✅' },
+    { id: 'team', label: 'Team', icon: '👥' },
     { id: 'activity', label: 'Activity', icon: '📜' },
     { id: 'settings', label: 'Settings', icon: '⚙️' },
     { id: 'analytics', label: 'Analytics', icon: '📈', preview: true },
@@ -39,6 +73,20 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
           <p className="text-[10px] text-slate-500 mt-1 uppercase tracking-widest font-bold">AWS Cognito Secured</p>
         </div>
         
+        {me && me.workspaces.length > 1 && onSwitchWorkspace && (
+          <div className="px-4 pt-4">
+            <label className="text-[10px] font-black uppercase text-slate-500">Workspace</label>
+            <select
+              value={me.tenant.tenantId}
+              onChange={(e) => onSwitchWorkspace(e.target.value)}
+              className="mt-1 w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-sm font-bold text-white"
+            >
+              {me.workspaces.map((w) => (
+                <option key={w.tenantId} value={w.tenantId}>{w.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
           {navItems.map((item) => (
             <button
@@ -108,6 +156,20 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
         </header>
         
         <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+          {me?.invites.map((i) => (
+            <div key={i.inviteId} className="mb-6 p-4 rounded-2xl bg-orange-50 border border-orange-200 flex flex-wrap items-center gap-3 text-sm">
+              <span className="flex-1 text-orange-900">
+                <b>{i.invitedBy}</b> invited you to <b>{i.tenantName}</b> as {i.role}.
+              </span>
+              <button onClick={() => onInvite?.(i.inviteId, true)} className="px-4 py-2 rounded-lg text-[11px] font-black uppercase bg-orange-600 text-white">
+                Join
+              </button>
+              <button onClick={() => onInvite?.(i.inviteId, false)} className="px-4 py-2 rounded-lg text-[11px] font-black uppercase text-orange-700 hover:bg-orange-100">
+                Decline
+              </button>
+            </div>
+          ))}
+          <NoticeBar />
           {children}
         </div>
       </main>

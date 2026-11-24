@@ -22,6 +22,7 @@ import { notify, sendToDevOpsAgent } from './notify.js';
 import { checkReadiness } from './readiness.js';
 import { getSettings } from './settings.js';
 import { scheduleOnce, unschedule } from './scheduler.js';
+import type { Gate } from './approvals.js';
 import type { Caller } from './tenant.js';
 
 const ACTIVE: ScaleEvent['status'][] = ['scheduled', 'scaling-up', 'active', 'scaling-down'];
@@ -32,7 +33,12 @@ export function scaleUpAt(e: Pick<ScaleEvent, 'startsAt' | 'prescaleMinutes'>): 
   return new Date(new Date(e.startsAt).getTime() - e.prescaleMinutes * 60_000);
 }
 
-export async function createEvent(tenant: Tenant, caller: Caller, req: CreateScaleEventRequest): Promise<ScaleEvent> {
+export async function createEvent(
+  tenant: Tenant,
+  caller: Caller,
+  req: CreateScaleEventRequest,
+  opts: { gate?: Gate } = {},
+): Promise<ScaleEvent> {
   // 1. Validate
   const name = typeof req.name === 'string' ? req.name.trim() : '';
   if (name.length < 1 || name.length > 80) throw new HttpError(400, 'name must be 1-80 characters.');
@@ -72,6 +78,9 @@ export async function createEvent(tenant: Tenant, caller: Caller, req: CreateSca
       throw new HttpError(409, `${shared.asg.asgName} is already in "${other.name}" during that window.`);
     }
   }
+
+  // Protected accounts: stop here and save an approval request instead (must be approved before scale-up).
+  await opts.gate?.(req.targets.map((t) => t.asg.accountId), upAt);
 
   // 3. Save, then schedule start and end
   const event: ScaleEvent = {

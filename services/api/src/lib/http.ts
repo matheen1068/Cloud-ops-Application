@@ -17,6 +17,16 @@ export class HttpError extends Error {
   }
 }
 
+/** Throw this to end a request early with a normal (non-error) response, e.g. 202 "sent for approval". */
+export class Respond extends Error {
+  constructor(
+    public readonly statusCode: number,
+    public readonly body: unknown,
+  ) {
+    super(`HTTP ${statusCode}`);
+  }
+}
+
 export function json(statusCode: number, body: unknown): ApiResult {
   return {
     statusCode,
@@ -47,6 +57,7 @@ export function handle(fn: (event: ApiEvent) => Promise<ApiResult>) {
     try {
       return await fn(event);
     } catch (err) {
+      if (err instanceof Respond) return json(err.statusCode, err.body);
       if (err instanceof HttpError) return json(err.statusCode, { error: err.message });
       console.error('Unhandled error', err);
       return json(500, { error: 'Something went wrong. Check the API logs.' });
