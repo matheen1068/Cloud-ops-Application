@@ -9,9 +9,12 @@ interface AccountExplorerProps {
   canOperate: boolean;
   onScale: (asg: ASG, capacity: CapacitySettings, reason: string) => Promise<void>;
   onConnect: () => void;
+  canAdmin?: boolean;
+  onToggleApproval?: (accountId: string, requireApproval: boolean) => Promise<void>;
 }
 
-const AccountExplorer: React.FC<AccountExplorerProps> = ({ accounts, canOperate, onScale, onConnect }) => {
+const AccountExplorer: React.FC<AccountExplorerProps> = ({ accounts, canOperate, onScale, onConnect, canAdmin, onToggleApproval }) => {
+  const [toggling, setToggling] = useState<string | null>(null);
   const [expandedAccount, setExpandedAccount] = useState<string | null>(accounts[0]?.id || null);
 
   if (accounts.length === 0) {
@@ -50,6 +53,9 @@ const AccountExplorer: React.FC<AccountExplorerProps> = ({ accounts, canOperate,
               </div>
             </div>
             <div className="flex items-center gap-6">
+              {account.requireApproval && (
+                <span className="px-2 py-1 rounded text-[10px] font-black uppercase bg-amber-50 text-amber-700">🔒 Needs approval</span>
+              )}
               <span
                 className={`px-2 py-1 rounded text-[10px] font-black uppercase ${
                   account.accessLevel === 'Operate' ? 'bg-green-50 text-green-700' : 'bg-slate-100 text-slate-500'
@@ -67,6 +73,26 @@ const AccountExplorer: React.FC<AccountExplorerProps> = ({ accounts, canOperate,
 
           {expandedAccount === account.id && (
             <div className="px-6 pb-6 pt-2 border-t border-slate-50 grid grid-cols-1 gap-4">
+              {canAdmin && onToggleApproval && (
+                <label className="flex flex-wrap items-center gap-3 px-4 py-3 rounded-xl border border-slate-100 bg-slate-50 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="accent-orange-600"
+                    checked={!!account.requireApproval}
+                    disabled={toggling === account.id}
+                    onChange={async (e) => {
+                      setToggling(account.id);
+                      try {
+                        await onToggleApproval(account.id, e.target.checked);
+                      } finally {
+                        setToggling(null);
+                      }
+                    }}
+                  />
+                  <span className="font-bold text-slate-700">Require approval for changes in this account</span>
+                  <span className="text-xs text-slate-400">Scale Now, new events and schedules need a second owner or admin</span>
+                </label>
+              )}
               {account.asgs.length === 0 && (
                 <p className="text-sm text-slate-500 py-4">No Auto Scaling groups found in {account.regions.join(', ')}.</p>
               )}

@@ -11,6 +11,7 @@ const NOTIFY_LABELS: Record<keyof NotifyOn, string> = {
   eventCompleted: 'Scale event completed (with report)',
   failures: 'Failures (events and schedules)',
   leftovers: 'Leftover and idle capacity found',
+  approvals: 'Approval requests and decisions',
 };
 
 const Section: React.FC<{ title: string; subtitle: string; children: React.ReactNode }> = ({ title, subtitle, children }) => (

@@ -26,6 +26,7 @@ export interface AWSAccount {
   name: string;
   accessLevel: AccessLevel;
   regions: string[];
+  requireApproval?: boolean;
   asgs: ASG[];
 }
 

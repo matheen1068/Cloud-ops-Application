@@ -26,6 +26,7 @@ import {
 import { HttpError } from './http.js';
 import { notify } from './notify.js';
 import { cronAt, scheduleRecurring, unschedule } from './scheduler.js';
+import type { Gate } from './approvals.js';
 import type { Caller } from './tenant.js';
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -63,7 +64,12 @@ function trim(schedule: ScaleSchedule): void {
   if (schedule.timeline.length > 50) schedule.timeline = schedule.timeline.slice(-50);
 }
 
-export async function createSchedule(tenant: Tenant, caller: Caller, req: CreateScheduleRequest): Promise<ScaleSchedule> {
+export async function createSchedule(
+  tenant: Tenant,
+  caller: Caller,
+  req: CreateScheduleRequest,
+  opts: { gate?: Gate } = {},
+): Promise<ScaleSchedule> {
   const name = typeof req.name === 'string' ? req.name.trim() : '';
   if (name.length < 1 || name.length > 80) throw new HttpError(400, 'name must be 1-80 characters.');
   if (typeof req.timezone !== 'string' || !isTimezone(req.timezone)) throw new HttpError(400, 'Unknown timezone.');
@@ -85,6 +91,7 @@ export async function createSchedule(tenant: Tenant, caller: Caller, req: Create
     const clash = other.targets.find((t) => keys.has(asgKey(t.asg)));
     if (clash) throw new HttpError(409, `${clash.asg.asgName} is already in schedule "${other.name}".`);
   }
+  await opts.gate?.(req.asgs.map((a) => a.accountId));
 
   // Keep days in calendar order for readable cron expressions.
   const orderedDays = WEEKDAYS.filter((d) => days.includes(d));

@@ -5,7 +5,16 @@ TypeScript Lambda handlers for the Cloud-Ops API. CDK bundles them with esbuild,
 | Route | Handler | What it does |
 |---|---|---|
 | `GET /me` | `me.ts` | Your user, workspace and plan. Creates a free workspace on first sign-in. Owners and admins also get the onboarding values (platform account, platform role, external ID) |
+| `POST /me/workspace` | `me.ts` | Switch the active workspace (people can belong to several) |
+| `GET /members` | `members.ts` | Team and pending invites |
+| `POST /members/invites` | `members.ts` | Invite by email with a role. Counts against the plan's user limit. Emails the link when SES is set up, otherwise returns it to copy |
+| `DELETE /members/invites/{id}` | `members.ts` | Revoke an invite |
+| `PUT/DELETE /members/{userId}` | `members.ts` | Change a role, remove someone, or leave. Only owners touch owners; a workspace always keeps one owner |
+| `POST /invites/{id}/accept\|decline` | `members.ts` | Answer an invite. The Cognito email must be verified and match |
+| `GET /approvals` | `approvals.ts` | Approval requests, newest first |
+| `POST /approvals/{id}/approve\|reject\|cancel` | `approvals.ts` | Another owner/admin approves and the change runs as the requester. Owners can approve their own with `breakGlassReason` (emergency, audited) |
 | `GET /accounts` | `accounts.ts` | Connected AWS accounts |
+| `PUT /accounts/{accountId}` | `accounts.ts` | Rename, change regions, or set `requireApproval` (admins) |
 | `POST /accounts` | `accounts.ts` | Connect an account: assumes `CloudOpsAccessRole` with the workspace's external ID and checks the account ID |
 | `GET /asgs` | `asgs.ts` | Every ASG across connected accounts and regions, with Spot/On-Demand split. Failures per account/region are returned in `errors` |
 | `PUT /asgs/capacity` | `capacity.ts` | Scale now: min/desired/max on one ASG, with before/after written to the audit log |
@@ -21,13 +30,17 @@ TypeScript Lambda handlers for the Cloud-Ops API. CDK bundles them with esbuild,
 | `GET /audit?limit&cursor` | `audit.ts` | Activity log, newest first, paged |
 | (EventBridge Scheduler) | `runner.ts` | Runs event start/end and schedule off/on, plus the 6-hourly insights sweep across workspaces. Idempotent, so scheduler retries are safe |
 
+**Approvals.** On accounts with `requireApproval`, Scale Now, new scale events and new schedules return **202** with `{ approval }` instead of applying. Requests expire after 24 hours, or when an event's pre-scale would start. Approving is a conditional write, so two admins can't apply the same request twice.
+
+**Invites.** A brand-new user whose verified email has a pending invite joins that workspace instead of getting their own. Existing users see the invite in `GET /me` and accept it.
+
 Notifications are best-effort: a failed Slack, email or DevOps Agent call never fails the scaling work. DevOps Agent calls are signed the way its generic webhook expects (HMAC-SHA256 over `<timestamp>:<body>`, Base64, in `x-amzn-event-signature`), or sent with a Bearer API key.
 
 ```
 src/
   handlers/   one file per Lambda
   lib/        http helpers, DynamoDB access, tenant/role checks, STS
-test/         handler tests against mocked AWS (no account needed): handlers.test.ts, phase1.test.ts, phase2.test.ts
+test/         handler tests against mocked AWS (no account needed): handlers.test.ts, phase1.test.ts, phase2.test.ts, phase3-teams.test.ts
 ```
 
 ```bash

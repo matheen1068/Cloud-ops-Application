@@ -81,8 +81,17 @@ export interface AwsAccount {
   connectionMethod: ConnectionMethod;
   status: ConnectionStatus;
   regions: string[]; // regions to scan for ASGs
+  /** Changes here (Scale Now, new events and schedules) need a second person's approval. */
+  requireApproval?: boolean;
   lastCheckedAt?: string;
   lastError?: string;
+}
+
+/** PUT /accounts/{accountId} body (admins). Only the fields sent are changed. */
+export interface UpdateAccountRequest {
+  alias?: string;
+  regions?: string[];
+  requireApproval?: boolean;
 }
 
 /** POST /accounts body: connect an account after the customer created the role. */
@@ -94,10 +103,29 @@ export interface ConnectAccountRequest {
   clientId?: string;
 }
 
+/** A workspace the user belongs to (MSP engineers can be in several). */
+export interface WorkspaceRef {
+  tenantId: string;
+  name: string;
+  role: UserRole;
+}
+
+/** An invite waiting for the signed-in user, shown as a banner. */
+export interface PendingInvite {
+  inviteId: string;
+  tenantId: string;
+  tenantName: string;
+  role: UserRole;
+  invitedBy: string;
+  expiresAt: string;
+}
+
 /** What GET /me returns. `onboarding` is only sent to owners and admins. */
 export interface MeResponse {
   user: { userId: string; email: string; role: UserRole };
   tenant: { tenantId: string; name: string; plan: PlanId; limits: PlanLimits };
+  workspaces: WorkspaceRef[];
+  invites: PendingInvite[];
   onboarding?: {
     platformAccountId: string;
     platformRoleName: string;
@@ -310,6 +338,7 @@ export interface NotifyOn {
   eventCompleted: boolean;
   failures: boolean;
   leftovers: boolean;
+  approvals: boolean;
 }
 
 export type DevOpsAgentAuth = 'hmac' | 'bearer';
@@ -345,7 +374,13 @@ export interface UpdateSettingsRequest {
   leftoverHours?: number;
 }
 
-export const DEFAULT_NOTIFY_ON: NotifyOn = { eventStarted: true, eventCompleted: true, failures: true, leftovers: true };
+export const DEFAULT_NOTIFY_ON: NotifyOn = {
+  eventStarted: true,
+  eventCompleted: true,
+  failures: true,
+  leftovers: true,
+  approvals: true,
+};
 
 // ---------------------------------------------------------------------------
 // Insights: capacity left behind and idle fleets
@@ -390,7 +425,18 @@ export type AuditAction =
   | 'schedule.switched-off'
   | 'schedule.switched-on'
   | 'settings.updated'
-  | 'devops-agent.investigation-sent';
+  | 'devops-agent.investigation-sent'
+  | 'account.updated'
+  | 'member.invited'
+  | 'member.joined'
+  | 'member.role-changed'
+  | 'member.removed'
+  | 'invite.revoked'
+  | 'approval.requested'
+  | 'approval.approved'
+  | 'approval.rejected'
+  | 'approval.cancelled'
+  | 'approval.break-glass';
 
 export interface AuditEntry {
   tenantId: string;
@@ -431,4 +477,86 @@ export function validateCapacity(c: CapacitySettings): string | null {
     return 'Capacity must satisfy min <= desired <= max.';
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Team: members and invites
+// ---------------------------------------------------------------------------
+
+export type InviteStatus = 'pending' | 'accepted' | 'declined' | 'revoked';
+
+export interface Invite {
+  inviteId: string;
+  tenantId: string;
+  email: string; // lower case
+  role: UserRole;
+  clientIds?: string[];
+  invitedBy: { userId: string; email: string };
+  createdAt: string;
+  expiresAt: string;
+  status: InviteStatus;
+}
+
+export interface CreateInviteRequest {
+  email: string;
+  role: UserRole;
+  clientIds?: string[];
+}
+
+export interface Member extends Membership {
+  joinedAt?: string;
+}
+
+/** GET /members. Invites are only listed for owners and admins. */
+export interface TeamView {
+  members: Member[];
+  invites: Invite[];
+  maxUsers: number | null;
+}
+
+/** POST /members/invites response. `link` is what to send when email isn't set up. */
+export interface CreateInviteResponse {
+  invite: Invite;
+  link: string;
+  emailed: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Approvals: two-person rule for accounts marked requireApproval
+// ---------------------------------------------------------------------------
+
+export type ApprovalKind = 'capacity' | 'scale-event' | 'schedule';
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'cancelled' | 'expired' | 'failed';
+
+export interface ApprovalRequest {
+  requestId: string;
+  tenantId: string;
+  kind: ApprovalKind;
+  status: ApprovalStatus;
+  summary: string; // one line, e.g. "Scale web (Prod) to 4/8/12"
+  details: string[];
+  accountIds: string[];
+  payload: CapacityChangeRequest | CreateScaleEventRequest | CreateScheduleRequest;
+  requestedBy: { userId: string; email: string };
+  requestedAt: string;
+  expiresAt: string;
+  decidedBy?: { userId: string; email: string };
+  decidedAt?: string;
+  note?: string;
+  /** An owner applied their own request without a second person, with a reason. */
+  breakGlass?: boolean;
+  /** What happened when it was applied, or why it failed. */
+  result?: string;
+}
+
+/** POST /approvals/{id}/approve | reject | cancel body. */
+export interface ApprovalDecisionRequest {
+  note?: string;
+  /** Owners only, on their own request: apply without a second approver. Min 10 characters. */
+  breakGlassReason?: string;
+}
+
+/** Returned with HTTP 202 when a change was sent for approval instead of applied. */
+export interface PendingApprovalResponse {
+  approval: ApprovalRequest;
 }

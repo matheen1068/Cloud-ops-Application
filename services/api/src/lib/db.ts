@@ -10,6 +10,10 @@
  *   pk = TENANT#<tenantId>  sk = SCHEDULE#<id>        -> recurring schedule
  *   pk = TENANT#<tenantId>  sk = SETTINGS             -> notifications and integrations
  *   pk = TENANT#<tenantId>  sk = INSIGHTS             -> latest insights sweep
+ *   pk = TENANT#<tenantId>  sk = MEMBER#<userId>      -> membership, tenant side (team list)
+ *   pk = TENANT#<tenantId>  sk = INVITE#<inviteId>    -> invite
+ *   pk = INVITEE#<email>    sk = INVITE#<t>#<id>      -> pointer: invites waiting for an email
+ *   pk = TENANT#<tenantId>  sk = APPROVAL#<id>        -> approval request (ids sort by time)
  */
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
@@ -24,7 +28,10 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import { randomBytes, randomUUID } from 'node:crypto';
 import type {
+  ApprovalRequest,
   AuditEntry,
+  Invite,
+  Member,
   AwsAccount,
   InsightsReport,
   Membership,
@@ -54,7 +61,16 @@ const keys = {
   audit: (tenantId: string, at: string, auditId: string) => ({ pk: `TENANT#${tenantId}`, sk: `AUDIT#${at}#${auditId}` }),
   event: (tenantId: string, eventId: string) => ({ pk: `TENANT#${tenantId}`, sk: `EVENT#${eventId}` }),
   schedule: (tenantId: string, scheduleId: string) => ({ pk: `TENANT#${tenantId}`, sk: `SCHEDULE#${scheduleId}` }),
+  member: (tenantId: string, userId: string) => ({ pk: `TENANT#${tenantId}`, sk: `MEMBER#${userId}` }),
+  invite: (tenantId: string, inviteId: string) => ({ pk: `TENANT#${tenantId}`, sk: `INVITE#${inviteId}` }),
+  invitee: (email: string, tenantId: string, inviteId: string) => ({ pk: `INVITEE#${email}`, sk: `INVITE#${tenantId}#${inviteId}` }),
+  approval: (tenantId: string, requestId: string) => ({ pk: `TENANT#${tenantId}`, sk: `APPROVAL#${requestId}` }),
 };
+
+/** Ids that sort by creation time (newest last), for approvals. */
+export function timeSortableId(): string {
+  return `${Date.now().toString(36).padStart(9, '0')}${randomBytes(4).toString('hex')}`;
+}
 
 /** Removes the table keys before an item leaves the API. */
 function strip<T>(item: Record<string, unknown>): T {
@@ -77,14 +93,136 @@ async function queryAll(input: QueryCommandInput): Promise<Record<string, unknow
 // Tenants and memberships
 // ---------------------------------------------------------------------------
 
-export async function getMembershipForUser(userId: string): Promise<Membership | undefined> {
+/** Every workspace the user belongs to. */
+export async function listMembershipsForUser(userId: string): Promise<Membership[]> {
   const items = await queryAll({
     TableName: TABLE,
     KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
     ExpressionAttributeValues: { ':pk': `USER#${userId}`, ':prefix': 'TENANT#' },
   });
-  // v1: one workspace per user. Picking the first keeps it simple.
-  return items[0] ? strip<Membership>(items[0]) : undefined;
+  return items.map((i) => strip<Membership>(i));
+}
+
+export async function getMembership(userId: string, tenantId: string): Promise<Membership | undefined> {
+  const res = await ddb.send(new GetCommand({ TableName: TABLE, Key: keys.membership(userId, tenantId) }));
+  return res.Item ? strip<Membership>(res.Item) : undefined;
+}
+
+/** The workspace the user last chose (PROFILE.tenantId). */
+export async function getActiveTenantId(userId: string): Promise<string | undefined> {
+  const res = await ddb.send(new GetCommand({ TableName: TABLE, Key: keys.profile(userId) }));
+  return res.Item?.tenantId as string | undefined;
+}
+
+export async function setActiveTenantId(userId: string, tenantId: string): Promise<void> {
+  await ddb.send(
+    new PutCommand({ TableName: TABLE, Item: { ...keys.profile(userId), tenantId, updatedAt: new Date().toISOString() } }),
+  );
+}
+
+export async function deleteProfile(userId: string): Promise<void> {
+  await ddb.send(new DeleteCommand({ TableName: TABLE, Key: keys.profile(userId) }));
+}
+
+/** Writes both sides of a membership: the user's list of workspaces and the team list. */
+export async function putMembership(m: Member): Promise<void> {
+  await ddb.send(
+    new TransactWriteCommand({
+      TransactItems: [
+        { Put: { TableName: TABLE, Item: { ...keys.membership(m.userId, m.tenantId), ...m } } },
+        { Put: { TableName: TABLE, Item: { ...keys.member(m.tenantId, m.userId), ...m } } },
+      ],
+    }),
+  );
+}
+
+export async function deleteMembership(tenantId: string, userId: string): Promise<void> {
+  await ddb.send(
+    new TransactWriteCommand({
+      TransactItems: [
+        { Delete: { TableName: TABLE, Key: keys.membership(userId, tenantId) } },
+        { Delete: { TableName: TABLE, Key: keys.member(tenantId, userId) } },
+      ],
+    }),
+  );
+}
+
+export async function listMembers(tenantId: string): Promise<Member[]> {
+  return listByPrefix<Member>(tenantId, 'MEMBER#');
+}
+
+// ---------------------------------------------------------------------------
+// Invites
+// ---------------------------------------------------------------------------
+
+export async function putInvite(invite: Invite): Promise<void> {
+  const pointer = keys.invitee(invite.email, invite.tenantId, invite.inviteId);
+  await ddb.send(
+    new TransactWriteCommand({
+      TransactItems: [
+        { Put: { TableName: TABLE, Item: { ...keys.invite(invite.tenantId, invite.inviteId), ...invite } } },
+        invite.status === 'pending'
+          ? { Put: { TableName: TABLE, Item: { ...pointer, tenantId: invite.tenantId, inviteId: invite.inviteId } } }
+          : { Delete: { TableName: TABLE, Key: pointer } },
+      ],
+    }),
+  );
+}
+
+export async function getInvite(tenantId: string, inviteId: string): Promise<Invite | undefined> {
+  const res = await ddb.send(new GetCommand({ TableName: TABLE, Key: keys.invite(tenantId, inviteId) }));
+  return res.Item ? strip<Invite>(res.Item) : undefined;
+}
+
+export async function listInvites(tenantId: string): Promise<Invite[]> {
+  return listByPrefix<Invite>(tenantId, 'INVITE#');
+}
+
+/** Pending invites addressed to this email, across all workspaces. */
+export async function listInvitesForEmail(email: string): Promise<Invite[]> {
+  const pointers = await queryAll({
+    TableName: TABLE,
+    KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+    ExpressionAttributeValues: { ':pk': `INVITEE#${email.toLowerCase()}`, ':prefix': 'INVITE#' },
+  });
+  const invites = await Promise.all(pointers.map((p) => getInvite(p.tenantId as string, p.inviteId as string)));
+  return invites.filter((i): i is Invite => !!i && i.status === 'pending');
+}
+
+// ---------------------------------------------------------------------------
+// Approvals
+// ---------------------------------------------------------------------------
+
+export async function putApproval(a: ApprovalRequest): Promise<void> {
+  await ddb.send(new PutCommand({ TableName: TABLE, Item: { ...keys.approval(a.tenantId, a.requestId), ...a } }));
+}
+
+/** Saves a decision only if the request is still pending, so two admins can't both apply it. */
+export async function claimApproval(a: ApprovalRequest): Promise<boolean> {
+  try {
+    await ddb.send(
+      new PutCommand({
+        TableName: TABLE,
+        Item: { ...keys.approval(a.tenantId, a.requestId), ...a },
+        ConditionExpression: '#s = :pending',
+        ExpressionAttributeNames: { '#s': 'status' },
+        ExpressionAttributeValues: { ':pending': 'pending' },
+      }),
+    );
+    return true;
+  } catch (err) {
+    if ((err as Error).name === 'ConditionalCheckFailedException') return false;
+    throw err;
+  }
+}
+
+export async function getApproval(tenantId: string, requestId: string): Promise<ApprovalRequest | undefined> {
+  const res = await ddb.send(new GetCommand({ TableName: TABLE, Key: keys.approval(tenantId, requestId) }));
+  return res.Item ? strip<ApprovalRequest>(res.Item) : undefined;
+}
+
+export async function listApprovals(tenantId: string): Promise<ApprovalRequest[]> {
+  return listByPrefix<ApprovalRequest>(tenantId, 'APPROVAL#');
 }
 
 export async function getTenant(tenantId: string): Promise<Tenant | undefined> {
@@ -122,6 +260,7 @@ export async function createTenantForUser(userId: string, email: string): Promis
           },
           { Put: { TableName: TABLE, Item: { ...keys.tenant(tenantId), ...tenant } } },
           { Put: { TableName: TABLE, Item: { ...keys.membership(userId, tenantId), ...membership } } },
+          { Put: { TableName: TABLE, Item: { ...keys.member(tenantId, userId), ...membership, joinedAt: now } } },
         ],
       }),
     );

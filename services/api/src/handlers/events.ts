@@ -3,6 +3,7 @@
 // POST /scale-events/{eventId}/cancel    cancel a scheduled event, or end an active one now
 // POST /scale-events/{eventId}/investigate  send problems to the customer's AWS DevOps Agent
 import type { CreateScaleEventRequest } from '@cloud-ops/shared';
+import { approvalGate, describeEvent } from '../lib/approvals.js';
 import { cancelEvent, createEvent, investigateEvent } from '../lib/events.js';
 import { listEvents } from '../lib/db.js';
 import { handle, HttpError, json, parseBody } from '../lib/http.js';
@@ -20,7 +21,9 @@ export const handler = handle(async (event) => {
     }
     case 'POST /scale-events': {
       requireRole(membership, OPERATOR_ROLES);
-      const created = await createEvent(tenant, caller, parseBody<CreateScaleEventRequest>(event));
+      const req = parseBody<CreateScaleEventRequest>(event);
+      const gate = approvalGate(tenant, caller, 'scale-event', req, (accounts) => describeEvent(req, accounts));
+      const created = await createEvent(tenant, caller, req, { gate });
       return json(201, { event: created });
     }
     case 'POST /scale-events/{eventId}/cancel': {

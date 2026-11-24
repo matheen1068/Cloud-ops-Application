@@ -10,6 +10,7 @@ export function toUiAccounts(accounts: AwsAccount[], asgs: AutoScalingGroupSumma
       name: account.alias,
       accessLevel: account.accessLevel,
       regions: account.regions,
+      requireApproval: account.requireApproval,
       asgs: asgs
         .filter((g) => g.accountId === account.accountId)
         .map((g) => {

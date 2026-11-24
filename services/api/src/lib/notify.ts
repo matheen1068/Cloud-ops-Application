@@ -8,7 +8,7 @@ import { SendEmailCommand, SESv2Client } from '@aws-sdk/client-sesv2';
 import type { WorkspaceSettings } from '@cloud-ops/shared';
 import { getSettings } from './settings.js';
 
-export type NoticeKind = 'event-started' | 'event-completed' | 'failure' | 'leftovers' | 'test';
+export type NoticeKind = 'event-started' | 'event-completed' | 'failure' | 'leftovers' | 'approval' | 'test';
 
 export interface Notice {
   kind: NoticeKind;
@@ -32,6 +32,8 @@ function wanted(s: WorkspaceSettings, kind: NoticeKind): boolean {
       return s.notifyOn.failures;
     case 'leftovers':
       return s.notifyOn.leftovers;
+    case 'approval':
+      return s.notifyOn.approvals;
     default:
       return true;
   }

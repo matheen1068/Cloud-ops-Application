@@ -8,6 +8,8 @@ import ScaleEvents from './components/ScaleEvents';
 import Schedules from './components/Schedules';
 import Activity from './components/Activity';
 import Settings from './components/Settings';
+import Team from './components/Team';
+import Approvals from './components/Approvals';
 import Analytics from './components/Analytics';
 import CapacityBalancer from './components/CapacityBalancer';
 import AIAdvisor from './components/AIAdvisor';
@@ -75,6 +77,39 @@ const App: React.FC = () => {
     await refresh();
   };
 
+  const switchWorkspace = async (tenantId: string) => {
+    try {
+      await api.switchWorkspace(tenantId);
+      setActiveTab('dashboard');
+      await refresh();
+    } catch (err) {
+      setFleet((f) => ({ ...f, error: (err as Error).message }));
+    }
+  };
+
+  const answerInvite = async (inviteId: string, accept: boolean) => {
+    try {
+      if (accept) {
+        await api.acceptInvite(inviteId);
+        setActiveTab('dashboard');
+      } else {
+        await api.declineInvite(inviteId);
+      }
+      await refresh();
+    } catch (err) {
+      setFleet((f) => ({ ...f, error: (err as Error).message }));
+    }
+  };
+
+  const toggleApproval = async (accountId: string, requireApproval: boolean) => {
+    try {
+      await api.updateAccount(accountId, { requireApproval });
+      await refresh();
+    } catch (err) {
+      setFleet((f) => ({ ...f, error: (err as Error).message }));
+    }
+  };
+
   if (user === undefined) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-900">
@@ -87,6 +122,7 @@ const App: React.FC = () => {
 
   const role = fleet.me?.user.role;
   const canOperate = role === 'owner' || role === 'admin' || role === 'operator';
+  const canAdmin = role === 'owner' || role === 'admin';
 
   const renderContent = () => {
     switch (activeTab) {
@@ -97,6 +133,8 @@ const App: React.FC = () => {
             canOperate={canOperate}
             onScale={handleScale}
             onConnect={() => setActiveTab('connect')}
+            canAdmin={canAdmin}
+            onToggleApproval={toggleApproval}
           />
         );
       case 'events':
@@ -105,6 +143,10 @@ const App: React.FC = () => {
         return <Schedules accounts={fleet.accounts} canOperate={canOperate} onChanged={refresh} />;
       case 'activity':
         return <Activity />;
+      case 'team':
+        return fleet.me ? <Team me={fleet.me} onLeft={refresh} /> : null;
+      case 'approvals':
+        return fleet.me ? <Approvals me={fleet.me} onChanged={refresh} /> : null;
       case 'settings':
         return <Settings canEdit={role === 'owner' || role === 'admin'} />;
       case 'connect':
@@ -136,7 +178,10 @@ const App: React.FC = () => {
       onRefresh={refresh}
       refreshing={fleet.loading}
       user={user}
-      subtitle={fleet.me ? `${fleet.me.user.role} · ${fleet.me.tenant.plan} plan` : 'Cognito Auth'}
+      subtitle={fleet.me ? `${fleet.me.tenant.name} · ${fleet.me.user.role}` : 'Cognito Auth'}
+      me={fleet.me}
+      onSwitchWorkspace={switchWorkspace}
+      onInvite={answerInvite}
     >
       {fleet.error && (
         <div className="mb-6 p-4 rounded-2xl bg-red-50 border border-red-100 text-sm font-medium text-red-700">

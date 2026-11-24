@@ -2,6 +2,7 @@
 // POST   /schedules                 create (off-hours schedule)
 // DELETE /schedules/{scheduleId}    delete (switches ASGs back on first if they're off)
 import type { CreateScheduleRequest } from '@cloud-ops/shared';
+import { approvalGate, describeSchedule } from '../lib/approvals.js';
 import { listSchedules } from '../lib/db.js';
 import { handle, HttpError, json, parseBody } from '../lib/http.js';
 import { createSchedule, deleteSchedule } from '../lib/schedules.js';
@@ -19,7 +20,9 @@ export const handler = handle(async (event) => {
     }
     case 'POST /schedules': {
       requireRole(membership, OPERATOR_ROLES);
-      const created = await createSchedule(tenant, caller, parseBody<CreateScheduleRequest>(event));
+      const req = parseBody<CreateScheduleRequest>(event);
+      const gate = approvalGate(tenant, caller, 'schedule', req, (accounts) => describeSchedule(req, accounts));
+      const created = await createSchedule(tenant, caller, req, { gate });
       return json(201, { schedule: created });
     }
     case 'DELETE /schedules/{scheduleId}': {

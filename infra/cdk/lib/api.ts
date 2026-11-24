@@ -23,6 +23,8 @@ interface ApiProps {
   userPool: UserPool;
   userPoolClient: UserPoolClient;
   allowedOrigins: string[];
+  /** The hosted web app, for invite links. */
+  webUrl: string;
   /** Verified SES sender for email notifications. Email is off when missing. */
   senderEmail?: string;
 }
@@ -113,6 +115,7 @@ export class Api extends Construct {
       PLATFORM_ACCOUNT_ID: Aws.ACCOUNT_ID,
       PLATFORM_ROLE_NAME: this.platformRoleName,
       ACCESS_ROLE_NAME,
+      WEB_URL: props.webUrl,
       SCHEDULE_GROUP: scheduleGroup.name!,
       SCHEDULER_ROLE_ARN: schedulerRoleArn,
       RUNNER_ARN: runnerArn,
@@ -154,9 +157,26 @@ export class Api extends Construct {
       });
     };
 
+    const meFn = fn('MeFn', 'me.ts');
+    const accountsFn = fn('AccountsFn', 'accounts.ts');
+    const membersFn = fn('MembersFn', 'members.ts');
+    // Approving runs the change itself (Scale Now, create event or schedule): a few seconds.
+    const approvalsFn = fn('ApprovalsFn', 'approvals.ts');
     const routes: { path: string; methods: HttpMethod[]; handler: NodejsFunction }[] = [
-      { path: '/me', methods: [HttpMethod.GET], handler: fn('MeFn', 'me.ts') },
-      { path: '/accounts', methods: [HttpMethod.GET, HttpMethod.POST], handler: fn('AccountsFn', 'accounts.ts') },
+      { path: '/me', methods: [HttpMethod.GET], handler: meFn },
+      { path: '/me/workspace', methods: [HttpMethod.POST], handler: meFn },
+      { path: '/accounts', methods: [HttpMethod.GET, HttpMethod.POST], handler: accountsFn },
+      { path: '/accounts/{accountId}', methods: [HttpMethod.PUT], handler: accountsFn },
+      { path: '/members', methods: [HttpMethod.GET], handler: membersFn },
+      { path: '/members/invites', methods: [HttpMethod.POST], handler: membersFn },
+      { path: '/members/invites/{inviteId}', methods: [HttpMethod.DELETE], handler: membersFn },
+      { path: '/members/{userId}', methods: [HttpMethod.PUT, HttpMethod.DELETE], handler: membersFn },
+      { path: '/invites/{inviteId}/accept', methods: [HttpMethod.POST], handler: membersFn },
+      { path: '/invites/{inviteId}/decline', methods: [HttpMethod.POST], handler: membersFn },
+      { path: '/approvals', methods: [HttpMethod.GET], handler: approvalsFn },
+      { path: '/approvals/{requestId}/approve', methods: [HttpMethod.POST], handler: approvalsFn },
+      { path: '/approvals/{requestId}/reject', methods: [HttpMethod.POST], handler: approvalsFn },
+      { path: '/approvals/{requestId}/cancel', methods: [HttpMethod.POST], handler: approvalsFn },
       { path: '/asgs', methods: [HttpMethod.GET], handler: fn('AsgsFn', 'asgs.ts') },
       { path: '/asgs/capacity', methods: [HttpMethod.PUT], handler: fn('CapacityFn', 'capacity.ts') },
       { path: '/asgs/readiness', methods: [HttpMethod.POST], handler: fn('ReadinessFn', 'readiness.ts') },

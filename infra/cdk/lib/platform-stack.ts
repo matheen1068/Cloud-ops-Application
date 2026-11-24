@@ -37,6 +37,7 @@ export class PlatformStack extends Stack {
       userPoolClient: auth.userPoolClient,
       // Local dev origins plus the CloudFront URL of the hosted app
       allowedOrigins: [...props.allowedOrigins, web.url],
+      webUrl: web.url,
       senderEmail: props.senderEmail,
     });
 
