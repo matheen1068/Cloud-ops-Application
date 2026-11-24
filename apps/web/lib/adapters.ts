@@ -1,8 +1,18 @@
-import { asgKey, type AutoScalingGroupSummary, type AwsAccount } from '@cloud-ops/shared';
-import type { AWSAccount, InstanceMetrics } from '../types';
+import { asgKey, type AsgRef, type AutoScalingGroupSummary, type AwsAccount, type ListEcsResponse } from '@cloud-ops/shared';
+import type { ASG, AWSAccount, InstanceMetrics } from '../types';
+
+/** The API ref for a UI ASG or ECS service. */
+export function refOf(g: ASG): AsgRef {
+  return g.kind === 'ecs'
+    ? { accountId: g.accountId, region: g.region, asgName: g.name, kind: 'ecs', cluster: g.cluster }
+    : { accountId: g.accountId, region: g.region, asgName: g.name };
+}
+
+/** cluster/service for ECS, the name for ASGs. */
+export const labelOf = (g: ASG) => (g.kind === 'ecs' ? `${g.cluster}/${g.name}` : g.name);
 
 /** Groups the API's flat ASG list under each connected account. */
-export function toUiAccounts(accounts: AwsAccount[], asgs: AutoScalingGroupSummary[]): AWSAccount[] {
+export function toUiAccounts(accounts: AwsAccount[], asgs: AutoScalingGroupSummary[], ecs?: ListEcsResponse): AWSAccount[] {
   return accounts
     .filter((a) => a.status === 'connected')
     .map((account) => ({
@@ -10,6 +20,23 @@ export function toUiAccounts(accounts: AwsAccount[], asgs: AutoScalingGroupSumma
       name: account.alias,
       accessLevel: account.accessLevel,
       regions: account.regions,
+      ecsNotEnabled: ecs?.notEnabled.includes(account.accountId),
+      services: (ecs?.services ?? [])
+        .filter((s) => s.accountId === account.accountId)
+        .map((s) => ({
+          id: asgKey(s),
+          name: s.asgName,
+          region: s.region,
+          accountId: s.accountId,
+          capacity: s.capacity,
+          inService: s.runningCount,
+          managed: s.managedByCloudOps,
+          metrics: [],
+          kind: 'ecs' as const,
+          cluster: s.cluster,
+          autoscaling: s.autoscaling,
+          launchType: s.launchType,
+        })),
       requireApproval: account.requireApproval,
       clientId: account.clientId,
       connectionMethod: account.connectionMethod,

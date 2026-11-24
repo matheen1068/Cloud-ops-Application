@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import type { AuditEntry } from '@cloud-ops/shared';
+import { refLabel, type AuditEntry } from '@cloud-ops/shared';
 import { api } from '../lib/api';
 
 const LABELS: Record<string, string> = {
@@ -61,7 +61,7 @@ const Activity: React.FC = () => {
             <span className="font-mono text-xs text-slate-400 w-40 shrink-0">{new Date(e.at).toLocaleString()}</span>
             <span className={`w-2 h-2 rounded-full ${e.result === 'success' ? 'bg-green-500' : 'bg-red-500'}`}></span>
             <span className="font-black text-slate-800">{LABELS[e.action] ?? e.action}</span>
-            {e.asg && <span className="text-slate-600">{e.asg.asgName} <span className="text-[10px] font-bold text-slate-400 uppercase">{e.asg.region}</span></span>}
+            {e.asg && <span className="text-slate-600">{refLabel(e.asg)} <span className="text-[10px] font-bold text-slate-400 uppercase">{e.asg.region}</span></span>}
             {e.before && e.after && <span className="font-mono text-xs text-slate-500">{cap(e.before)} → {cap(e.after)}</span>}
             {e.message && <span className="text-slate-500 truncate max-w-md">{e.message}</span>}
             <span className="ml-auto text-xs text-slate-400">{e.actor === 'system' ? 'Cloud-Ops' : e.actor.email}</span>

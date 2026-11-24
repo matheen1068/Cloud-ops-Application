@@ -1,5 +1,5 @@
 import React from 'react';
-import type { ReadinessResult } from '@cloud-ops/shared';
+import { refLabel, type ReadinessResult } from '@cloud-ops/shared';
 
 const STYLE = {
   pass: { icon: '✓', box: 'bg-green-50 border-green-100', title: 'text-green-800', detail: 'text-green-700' },
@@ -16,7 +16,7 @@ const ReadinessList: React.FC<{ results: ReadinessResult[] }> = ({ results }) =>
       return (
         <div key={`${r.asg.accountId}-${r.asg.region}-${r.asg.asgName}`} className="space-y-2">
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
-            {r.asg.asgName} · {r.asg.region}
+            {refLabel(r.asg)} · {r.asg.region}
           </p>
           {problems.map((c) => {
             const s = STYLE[c.status];

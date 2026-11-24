@@ -50,7 +50,7 @@ See [`examples/organization`](examples/organization). A service-managed StackSet
 | `platform_role_name` | string | `CloudOpsPlatformRole` | Role in the platform account allowed to assume this role |
 | `role_name` | string | `CloudOpsAccessRole` | Keep the same in every account |
 | `access_level` | string | `Operate` | `ReadOnly` or `Operate` |
-| `restrict_to_tagged_asgs` | bool | `false` | Only scale ASGs tagged `CloudOpsManaged=true` |
+| `restrict_to_tagged_asgs` | bool | `false` | Only scale ASGs and ECS services tagged `CloudOpsManaged=true`. For an ECS service with auto scaling, tag its scalable target too |
 | `is_org_management_account` | bool | `false` | Allow listing child accounts (management account only) |
 | `tags` | map(string) | `{}` | Extra tags for the role |
 

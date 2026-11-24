@@ -183,6 +183,7 @@ export class Api extends Construct {
       { path: '/approvals/{requestId}/reject', methods: [HttpMethod.POST], handler: approvalsFn },
       { path: '/approvals/{requestId}/cancel', methods: [HttpMethod.POST], handler: approvalsFn },
       { path: '/asgs', methods: [HttpMethod.GET], handler: fn('AsgsFn', 'asgs.ts') },
+      { path: '/ecs-services', methods: [HttpMethod.GET], handler: fn('EcsFn', 'ecs.ts') },
       { path: '/asgs/capacity', methods: [HttpMethod.PUT], handler: fn('CapacityFn', 'capacity.ts') },
       { path: '/asgs/readiness', methods: [HttpMethod.POST], handler: fn('ReadinessFn', 'readiness.ts') },
       { path: '/audit', methods: [HttpMethod.GET], handler: fn('AuditFn', 'audit.ts') },

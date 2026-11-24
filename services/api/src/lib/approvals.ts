@@ -6,6 +6,7 @@
  * Cloud-Ops run it, on behalf of the person who asked. An owner can apply their own request
  * in an emergency ("break glass") with a written reason, which is recorded in the audit log.
  */
+import { refLabel } from '@cloud-ops/shared';
 import type {
   ApprovalDecisionRequest,
   ApprovalKind,
@@ -86,8 +87,8 @@ export function approvalGate(
 export function describeCapacity(req: CapacityChangeRequest, accounts: AwsAccount[]): Description {
   const alias = aliasOf(accounts, req.asg.accountId);
   return {
-    summary: `Scale ${req.asg.asgName} (${alias}) to ${fmt(req.capacity)}`,
-    details: [`${alias} · ${req.asg.region} · ${req.asg.asgName} → ${fmt(req.capacity)} (min/desired/max)`, ...(req.reason ? [`Reason: ${req.reason}`] : [])],
+    summary: `Scale ${refLabel(req.asg)} (${alias}) to ${fmt(req.capacity)}`,
+    details: [`${alias} · ${req.asg.region} · ${refLabel(req.asg)} → ${fmt(req.capacity)} (min/desired/max)`, ...(req.reason ? [`Reason: ${req.reason}`] : [])],
   };
 }
 
@@ -96,7 +97,7 @@ export function describeEvent(req: CreateScaleEventRequest, accounts: AwsAccount
     summary: `Scale event "${req.name}"`,
     details: [
       `${req.startsAt} → ${req.endsAt}, pre-scale ${req.prescaleMinutes ?? 0} min`,
-      ...req.targets.map((t) => `${aliasOf(accounts, t.asg.accountId)} · ${t.asg.region} · ${t.asg.asgName} → ${fmt(t.target)}`),
+      ...req.targets.map((t) => `${aliasOf(accounts, t.asg.accountId)} · ${t.asg.region} · ${refLabel(t.asg)} → ${fmt(t.target)}`),
     ],
   };
 }
@@ -106,7 +107,7 @@ export function describeSchedule(req: CreateScheduleRequest, accounts: AwsAccoun
     summary: `Off-hours schedule "${req.name}"`,
     details: [
       `${req.days.join(', ')}: off at ${req.offAt}, on at ${req.onAt} (${req.timezone})`,
-      ...req.asgs.map((a) => `${aliasOf(accounts, a.accountId)} · ${a.region} · ${a.asgName}`),
+      ...req.asgs.map((a) => `${aliasOf(accounts, a.accountId)} · ${a.region} · ${refLabel(a)}`),
     ],
   };
 }
@@ -134,7 +135,7 @@ async function execute(tenant: Tenant, a: ApprovalRequest, approver: string): Pr
       const account = await capacityAccount(tenant.tenantId, req.asg.accountId);
       const note = `${req.reason ? `${req.reason} · ` : ''}approved by ${approver}`;
       const r = await applyCapacityChange(tenant, account, requester, req, note);
-      return `${req.asg.asgName}: ${fmt(r.before)} → ${fmt(r.after)}`;
+      return `${refLabel(req.asg)}: ${fmt(r.before)} → ${fmt(r.after)}`;
     }
     case 'scale-event': {
       const event = await createEvent(tenant, requester, a.payload as CreateScaleEventRequest);

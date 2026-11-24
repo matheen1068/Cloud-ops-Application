@@ -5,6 +5,8 @@ import {
   UpdateAutoScalingGroupCommand,
 } from '@aws-sdk/client-auto-scaling';
 import {
+  refLabel,
+  refProblem,
   validateCapacity,
   type AsgRef,
   type AwsAccount,
@@ -15,6 +17,7 @@ import {
 } from '@cloud-ops/shared';
 import { assumeAccessRole, REGION_PATTERN, type TempCredentials } from './aws.js';
 import { getAccount, writeAudit } from './db.js';
+import { ecsClients, readEcs, writeEcs } from './ecs.js';
 import { HttpError } from './http.js';
 import type { Caller } from './tenant.js';
 
@@ -64,6 +67,17 @@ export class ClientPool {
   async autoscaling(account: AwsAccount, asg: AsgRef): Promise<AutoScalingClient> {
     return new AutoScalingClient({ region: asg.region, credentials: await this.credentials(account) });
   }
+
+  /** Current min/desired/max of an ASG or ECS service. */
+  async read(account: AwsAccount, ref: AsgRef): Promise<CapacitySettings> {
+    if (ref.kind === 'ecs') return readEcs(ecsClients(ref.region, await this.credentials(account)), ref.cluster!, ref.asgName);
+    return readCapacity(await this.autoscaling(account, ref), ref.asgName);
+  }
+
+  async write(account: AwsAccount, ref: AsgRef, c: CapacitySettings): Promise<void> {
+    if (ref.kind === 'ecs') return writeEcs(ecsClients(ref.region, await this.credentials(account)), ref.cluster!, ref.asgName, c);
+    return writeCapacity(await this.autoscaling(account, ref), ref.asgName, c);
+  }
 }
 
 export function entry(level: TimelineEntry['level'], message: string): TimelineEntry {
@@ -81,7 +95,7 @@ export function validateCapacityRequest(req: CapacityChangeRequest): void {
   if (!asg?.accountId || !asg.asgName || !REGION_PATTERN.test(asg.region ?? '')) {
     throw new HttpError(400, 'asg must include accountId, region and asgName.');
   }
-  const invalid = capacity ? validateCapacity(capacity) : 'capacity is required.';
+  const invalid = refProblem(asg) ?? (capacity ? validateCapacity(capacity) : 'capacity is required.');
   if (invalid) throw new HttpError(400, invalid);
 }
 
@@ -103,24 +117,27 @@ export async function applyCapacityChange(
   message = req.reason,
 ): Promise<{ asg: AsgRef; before: CapacitySettings; after: CapacitySettings }> {
   const { asg, capacity } = req;
-  const credentials = await assumeAccessRole(account.roleArn, tenant.externalId, tenant.tenantId);
-  const autoscaling = new AutoScalingClient({ region: asg.region, credentials });
+  const pool = new ClientPool(tenant);
+  const what = asg.kind === 'ecs' ? 'ECS service' : 'ASG';
 
   let before: CapacitySettings;
   try {
-    before = await readCapacity(autoscaling, asg.asgName);
-  } catch {
-    throw new HttpError(404, `ASG ${asg.asgName} not found in ${asg.region}.`);
+    before = await pool.read(account, asg);
+  } catch (err) {
+    if (/AccessDenied|not authorized/i.test(`${(err as Error).name} ${(err as Error).message}`)) {
+      throw new HttpError(403, `The role can't read this ${what}. ${asg.kind === 'ecs' ? 'Update the access role to the latest onboarding template (adds ECS permissions).' : ''}`.trim());
+    }
+    throw new HttpError(404, `${what} ${refLabel(asg)} not found in ${asg.region}.`);
   }
 
   const audit = { tenantId: tenant.tenantId, actor: { userId: actor.userId, email: actor.email }, action: 'asg.capacity-changed' as const, asg, before, after: capacity };
   try {
-    await writeCapacity(autoscaling, asg.asgName, capacity);
+    await pool.write(account, asg, capacity);
   } catch (err) {
     const msg = (err as Error).message;
     await writeAudit({ ...audit, result: 'failure', message: msg });
-    if ((err as Error).name === 'AccessDenied' || /not authorized/i.test(msg)) {
-      throw new HttpError(403, 'The role was not allowed to scale this ASG. If the role is tag-restricted, tag the ASG CloudOpsManaged=true.');
+    if (/AccessDenied/.test((err as Error).name) || /not authorized/i.test(msg)) {
+      throw new HttpError(403, `The role was not allowed to scale this ${what}. If the role is tag-restricted, tag it CloudOpsManaged=true${asg.kind === 'ecs' ? ' (the service, and its auto scaling target if it has one)' : ''}.`);
     }
     throw new HttpError(502, `AWS rejected the change: ${msg}`);
   }

@@ -20,7 +20,8 @@ TypeScript Lambda handlers for the Cloud-Ops API. CDK bundles them with esbuild,
 | `GET/POST /clients`, `PUT/DELETE /clients/{id}` | `clients.ts` | MSP plan: client groups. Deleting one unassigns its accounts |
 | `POST /accounts` | `accounts.ts` | Connect an account: assumes `CloudOpsAccessRole` with the workspace's external ID and checks the account ID |
 | `GET /asgs` | `asgs.ts` | Every ASG across connected accounts and regions, with Spot/On-Demand split. Failures per account/region are returned in `errors` |
-| `PUT /asgs/capacity` | `capacity.ts` | Scale now: min/desired/max on one ASG, with before/after written to the audit log |
+| `GET /ecs-services` | `ecs.ts` | Every ECS service across connected accounts and regions, with its Application Auto Scaling range. Accounts whose role predates ECS support come back in `notEnabled` |
+| `PUT /asgs/capacity` | `capacity.ts` | Scale now: min/desired/max on one ASG or ECS service (`kind: "ecs"`, `cluster`, service name in `asgName`), with before/after written to the audit log. Accounts with `requireApproval` return 202 and an approval request |
 | `POST /asgs/readiness` | `readiness.ts` | Pre-flight checks for planned capacity: vCPU quota headroom, instance type offered in every ASG zone, instance diversity, single AZ, suspended processes, failed launches in the last 24h, large jumps |
 | `GET/POST /scale-events` | `events.ts` | List / create events: pre-scale before `startsAt`, hold, scale back at `endsAt` to the capacity captured at scale-up. Overlapping events on one ASG are rejected |
 | `POST /scale-events/{id}/cancel` | `events.ts` | Cancel a scheduled event, or end an active one now |
@@ -32,6 +33,8 @@ TypeScript Lambda handlers for the Cloud-Ops API. CDK bundles them with esbuild,
 | `GET /insights`, `POST /insights/run` | `insights.ts` | Last insights report, or run one now: manual scale-ups still in place after N hours, and ASGs averaging under 5% CPU for 24h |
 | `GET /audit?limit&cursor` | `audit.ts` | Activity log, newest first, paged |
 | (EventBridge Scheduler) | `runner.ts` | Runs event start/end and schedule off/on, plus the 6-hourly insights sweep across workspaces. Idempotent, so scheduler retries are safe |
+
+**ECS services.** Anywhere an ASG ref is accepted (Scale Now, readiness, events, schedules, approvals), an ECS service works too: `{ accountId, region, kind: "ecs", cluster, asgName: "<service>" }`. Desired = the service's desired count; min/max = its Application Auto Scaling target, which is moved first so auto scaling doesn't pull desired back. Services without a target only get their desired count changed. Readiness checks the Fargate On-Demand vCPU quota, EC2 task placement, failed deployments and placement errors.
 
 **Approvals.** On accounts with `requireApproval`, Scale Now, new scale events and new schedules return **202** with `{ approval }` instead of applying. Requests expire after 24 hours, or when an event's pre-scale would start. Approving is a conditional write, so two admins can't apply the same request twice.
 
@@ -45,7 +48,7 @@ Notifications are best-effort: a failed Slack, email or DevOps Agent call never 
 src/
   handlers/   one file per Lambda
   lib/        http helpers, DynamoDB access, tenant/role checks, STS
-test/         handler tests against mocked AWS (no account needed): handlers.test.ts, phase1.test.ts, phase2.test.ts, phase3-teams.test.ts, phase3-msp.test.ts
+test/         handler tests against mocked AWS (no account needed): handlers.test.ts, phase1.test.ts, phase2.test.ts, phase3-teams.test.ts, phase3-msp.test.ts, phase3-ecs.test.ts
 ```
 
 ```bash
