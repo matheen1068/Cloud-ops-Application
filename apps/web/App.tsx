@@ -17,7 +17,7 @@ import CapacityBalancer from './components/CapacityBalancer';
 import AIAdvisor from './components/AIAdvisor';
 import Login from './components/Login';
 import { api } from './lib/api';
-import { toUiAccounts } from './lib/adapters';
+import { refOf, toUiAccounts } from './lib/adapters';
 import { currentEmail, signOut } from './lib/auth';
 import type { ASG, AWSAccount } from './types';
 
@@ -47,16 +47,17 @@ const App: React.FC = () => {
     try {
       // /me first: on a brand-new user it creates the workspace.
       const me = await api.me();
-      const [{ accounts }, asgs, { clients }] = await Promise.all([
+      const [{ accounts }, asgs, ecs, { clients }] = await Promise.all([
         api.listAccounts(),
         api.listAsgs(),
+        api.listEcs().catch(() => undefined), // ECS is optional; never block the fleet view
         me.tenant.limits.clientGroups ? api.listClients() : Promise.resolve({ clients: [] as ClientView[] }),
       ]);
       setFleet({
         me,
-        accounts: toUiAccounts(accounts, asgs.asgs),
+        accounts: toUiAccounts(accounts, asgs.asgs, ecs),
         clients,
-        warnings: asgs.errors.map((e) => `${e.accountId}${e.region ? ` (${e.region})` : ''}: ${e.message}`),
+        warnings: [...asgs.errors, ...(ecs?.errors ?? [])].map((e) => `${e.accountId}${e.region ? ` (${e.region})` : ''}: ${e.message}`),
         loading: false,
         error: null,
       });
@@ -78,7 +79,7 @@ const App: React.FC = () => {
 
   const handleScale = async (asg: ASG, capacity: CapacitySettings, reason: string) => {
     await api.setCapacity({
-      asg: { accountId: asg.accountId, region: asg.region, asgName: asg.name },
+      asg: refOf(asg),
       capacity,
       reason: reason || undefined,
     });

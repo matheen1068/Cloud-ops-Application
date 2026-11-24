@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { offShareOfWeek, WEEKDAYS, type ScaleSchedule, type Weekday } from '@cloud-ops/shared';
+import { offShareOfWeek, refLabel, WEEKDAYS, type ScaleSchedule, type Weekday } from '@cloud-ops/shared';
 import { api } from '../lib/api';
+import { labelOf, refOf } from '../lib/adapters';
 import type { ASG, AWSAccount } from '../types';
 
 interface Props {
@@ -108,7 +109,7 @@ const Schedules: React.FC<Props> = ({ accounts, canOperate, onChanged }) => {
             <div className="grid gap-2">
               {s.targets.map((t) => (
                 <div key={`${t.asg.accountId}-${t.asg.asgName}`} className="flex flex-wrap items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100 text-xs">
-                  <span className="font-bold text-slate-800">{t.asg.asgName}</span>
+                  <span className="font-bold text-slate-800">{refLabel(t.asg)}</span>
                   <span className="text-[10px] font-bold text-slate-400 uppercase">{t.asg.region}</span>
                   {t.state === 'off' && t.baseline && (
                     <span className="text-slate-500">comes back as {t.baseline.min}/{t.baseline.desired}/{t.baseline.max}</span>
@@ -150,7 +151,7 @@ const ScheduleForm: React.FC<{ accounts: AWSAccount[]; onCancel: () => void; onC
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const asgs: ASG[] = accounts.filter((a) => a.accessLevel === 'Operate').flatMap((a) => a.asgs);
+  const asgs: ASG[] = accounts.filter((a) => a.accessLevel === 'Operate').flatMap((a) => [...a.asgs, ...a.services]);
   const share = offAt > onAt && days.length > 0 ? offShareOfWeek(days, onAt, offAt) : 0;
 
   const toggleDay = (d: Weekday) => setDays((ds) => (ds.includes(d) ? ds.filter((x) => x !== d) : [...ds, d]));
@@ -175,7 +176,7 @@ const ScheduleForm: React.FC<{ accounts: AWSAccount[]; onCancel: () => void; onC
         days,
         onAt,
         offAt,
-        asgs: asgs.filter((g) => picked.has(g.id)).map((g) => ({ accountId: g.accountId, region: g.region, asgName: g.name })),
+        asgs: asgs.filter((g) => picked.has(g.id)).map((g) => refOf(g)),
       });
       await onCreated();
     } catch (err) {
@@ -230,7 +231,7 @@ const ScheduleForm: React.FC<{ accounts: AWSAccount[]; onCancel: () => void; onC
         {asgs.map((g) => (
           <label key={g.id} className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer ${picked.has(g.id) ? 'border-orange-200 bg-orange-50/40' : 'border-slate-100 bg-slate-50'}`}>
             <input type="checkbox" checked={picked.has(g.id)} onChange={() => togglePick(g.id)} className="accent-orange-600" />
-            <span className="text-sm font-bold text-slate-800">{g.name}</span>
+            <span className="text-sm font-bold text-slate-800">{labelOf(g)}{g.kind === 'ecs' && <span className="ml-2 px-1.5 py-0.5 rounded bg-sky-100 text-sky-700 text-[9px] font-black uppercase">ECS</span>}</span>
             <span className="text-[10px] font-bold text-slate-400 uppercase">{g.region}</span>
             <span className="ml-auto text-xs text-slate-500">now {g.capacity.min}/{g.capacity.desired}/{g.capacity.max}</span>
           </label>

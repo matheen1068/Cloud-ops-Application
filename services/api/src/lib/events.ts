@@ -7,6 +7,8 @@ import { randomUUID } from 'node:crypto';
 import { DescribeScalingActivitiesCommand, type AutoScalingClient } from '@aws-sdk/client-auto-scaling';
 import {
   asgKey,
+  refLabel,
+  refProblem,
   validateCapacity,
   type CreateScaleEventRequest,
   type ScaleEvent,
@@ -15,7 +17,7 @@ import {
   type Tenant,
 } from '@cloud-ops/shared';
 import { REGION_PATTERN } from './aws.js';
-import { ClientPool, entry, fmt, operableAccount, readCapacity, writeCapacity } from './capacity.js';
+import { ClientPool, entry, fmt, operableAccount } from './capacity.js';
 import { getAccount, getEvent, getTenant, listEvents, putEvent, writeAudit } from './db.js';
 import { HttpError } from './http.js';
 import { notify, sendToDevOpsAgent } from './notify.js';
@@ -62,8 +64,10 @@ export async function createEvent(
       throw new HttpError(400, 'Each target needs accountId, region and asgName.');
     }
     const invalid = t.target ? validateCapacity(t.target) : 'target capacity is required.';
-    if (invalid) throw new HttpError(400, `${t.asg.asgName}: ${invalid}`);
-    if (seen.has(asgKey(t.asg))) throw new HttpError(400, `${t.asg.asgName} is listed twice.`);
+    if (invalid) throw new HttpError(400, `${refLabel(t.asg)}: ${invalid}`);
+    const refIssue = refProblem(t.asg);
+    if (refIssue) throw new HttpError(400, refIssue);
+    if (seen.has(asgKey(t.asg))) throw new HttpError(400, `${refLabel(t.asg)} is listed twice.`);
     seen.add(asgKey(t.asg));
     await operableAccount(tenant.tenantId, t.asg.accountId);
   }
@@ -150,7 +154,7 @@ export async function startEvent(tenantId: string, eventId: string): Promise<voi
   });
 
   const lines = event.targets.map((t) =>
-    t.state === 'scaled' ? `${t.asg.asgName}: ${fmt(t.baseline!)} → ${fmt(t.target)}` : `${t.asg.asgName}: FAILED, ${t.message}`,
+    t.state === 'scaled' ? `${refLabel(t.asg)}: ${fmt(t.baseline!)} → ${fmt(t.target)}` : `${refLabel(t.asg)}: FAILED, ${t.message}`,
   );
   if (scaled === event.targets.length) {
     await notify(tenantId, { kind: 'event-started', level: 'info', title: `Scale event "${event.name}" is live`, lines });
@@ -188,22 +192,20 @@ async function scaleUpTarget(tenant: Tenant, pool: ClientPool, event: ScaleEvent
   try {
     const account = await getAccount(tenant.tenantId, t.asg.accountId);
     if (!account || account.accessLevel !== 'Operate') throw new Error('account is not connected with Operate access');
-    const client = await pool.autoscaling(account, t.asg);
-
     // Readiness at start time: logged, never blocking (the event is already due).
     const readiness = await checkReadiness(await pool.credentials(account), t.asg, t.target).catch(() => null);
     for (const c of readiness?.checks ?? []) {
-      if (c.status !== 'pass') event.timeline.push(entry(c.status === 'fail' ? 'error' : 'warn', `${t.asg.asgName}: ${c.title}. ${c.detail}`));
+      if (c.status !== 'pass') event.timeline.push(entry(c.status === 'fail' ? 'error' : 'warn', `${refLabel(t.asg)}: ${c.title}. ${c.detail}`));
     }
 
-    t.baseline = await readCapacity(client, t.asg.asgName);
-    await writeCapacity(client, t.asg.asgName, t.target);
+    t.baseline = await pool.read(account, t.asg);
+    await pool.write(account, t.asg, t.target);
     t.state = 'scaled';
-    event.timeline.push(entry('info', `${t.asg.asgName}: ${fmt(t.baseline)} → ${fmt(t.target)}`));
+    event.timeline.push(entry('info', `${refLabel(t.asg)}: ${fmt(t.baseline)} → ${fmt(t.target)}`));
   } catch (err) {
     t.state = 'failed';
     t.message = (err as Error).message;
-    event.timeline.push(entry('error', `${t.asg.asgName}: ${t.message}`));
+    event.timeline.push(entry('error', `${refLabel(t.asg)}: ${t.message}`));
   }
 }
 
@@ -226,15 +228,17 @@ export async function endEvent(tenantId: string, eventId: string, reason = 'Even
         try {
           const account = await getAccount(tenantId, t.asg.accountId);
           if (!account) throw new Error('account was disconnected');
-          const client = await pool.autoscaling(account, t.asg);
-          if (event.scaledUpAt) t.report = await measure(client, t.asg.asgName, event.scaledUpAt).catch(() => undefined);
-          await writeCapacity(client, t.asg.asgName, t.baseline!);
+          // Launch report: ASGs only (ECS tasks don't have scaling activities).
+          if (event.scaledUpAt && t.asg.kind !== 'ecs') {
+            t.report = await measure(await pool.autoscaling(account, t.asg), t.asg.asgName, event.scaledUpAt).catch(() => undefined);
+          }
+          await pool.write(account, t.asg, t.baseline!);
           t.state = 'reverted';
-          event.timeline.push(entry('info', `${t.asg.asgName}: back to ${fmt(t.baseline!)}`));
+          event.timeline.push(entry('info', `${refLabel(t.asg)}: back to ${fmt(t.baseline!)}`));
         } catch (err) {
           t.state = 'revert-failed';
           t.message = (err as Error).message;
-          event.timeline.push(entry('error', `${t.asg.asgName}: scale-back failed: ${t.message}`));
+          event.timeline.push(entry('error', `${refLabel(t.asg)}: scale-back failed: ${t.message}`));
         }
       }),
   );

@@ -192,11 +192,28 @@ export interface CapacitySettings {
   max: number;
 }
 
-/** Points at one ASG anywhere in a tenant's accounts. */
+export type ScalableKind = 'asg' | 'ecs';
+
+/**
+ * Points at one scalable thing anywhere in a tenant's accounts: an Auto Scaling group
+ * (kind missing or 'asg') or an ECS service (kind 'ecs', asgName = service name).
+ */
 export interface AsgRef {
   accountId: string;
   region: string;
   asgName: string;
+  kind?: ScalableKind;
+  /** ECS only: the cluster name. */
+  cluster?: string;
+}
+
+/** Why a ref can't be used, or null. Checks the ECS fields; callers check accountId/region/name. */
+export function refProblem(ref: AsgRef): string | null {
+  if (ref.kind !== undefined && ref.kind !== 'asg' && ref.kind !== 'ecs') return 'kind must be asg or ecs.';
+  if (ref.kind === 'ecs' && (typeof ref.cluster !== 'string' || !/^[A-Za-z0-9_-]{1,255}$/.test(ref.cluster))) {
+    return `${ref.asgName}: ECS services need a cluster name.`;
+  }
+  return null;
 }
 
 export interface AutoScalingGroupSummary extends AsgRef {
@@ -224,6 +241,28 @@ export interface CapacityChangeRequest {
 export interface ListAsgsResponse {
   asgs: AutoScalingGroupSummary[];
   errors: { accountId: string; region?: string; message: string }[];
+}
+
+/** An ECS service. Capacity is min/max from Application Auto Scaling, when the service has a target. */
+export interface EcsServiceSummary extends AsgRef {
+  kind: 'ecs';
+  cluster: string;
+  arn: string;
+  capacity: CapacitySettings;
+  runningCount: number;
+  pendingCount: number;
+  launchType: string; // FARGATE, EC2, or capacity provider names
+  /** Has an Application Auto Scaling target. Without one, only the desired count can change. */
+  autoscaling: boolean;
+  managedByCloudOps: boolean;
+  status: string;
+}
+
+export interface ListEcsResponse {
+  services: EcsServiceSummary[];
+  errors: { accountId: string; region?: string; message: string }[];
+  /** Accounts whose role predates ECS support (needs the updated onboarding template). */
+  notEnabled: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -515,7 +554,14 @@ export interface AuditPage {
 
 /** One string key per ASG, handy for maps and DynamoDB sort keys. */
 export function asgKey(ref: AsgRef): string {
-  return `${ref.accountId}#${ref.region}#${ref.asgName}`;
+  return ref.kind === 'ecs'
+    ? `${ref.accountId}#${ref.region}#ecs#${ref.cluster}#${ref.asgName}`
+    : `${ref.accountId}#${ref.region}#${ref.asgName}`;
+}
+
+/** A display name: the ASG name, or cluster/service for ECS. */
+export function refLabel(ref: AsgRef): string {
+  return ref.kind === 'ecs' ? `${ref.cluster}/${ref.asgName}` : ref.asgName;
 }
 
 /** Returns an error message, or null when the capacity is valid. */

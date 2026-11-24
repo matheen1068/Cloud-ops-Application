@@ -19,6 +19,11 @@ export interface ASG {
   inService: number;
   managed: boolean; // tagged CloudOpsManaged=true
   metrics: InstanceMetrics[];
+  /** ECS services share this shape: kind 'ecs', name = service, inService = running tasks. */
+  kind?: 'asg' | 'ecs';
+  cluster?: string;
+  autoscaling?: boolean; // ECS: has an Application Auto Scaling target
+  launchType?: string;
 }
 
 export interface AWSAccount {
@@ -27,6 +32,8 @@ export interface AWSAccount {
   accessLevel: AccessLevel;
   regions: string[];
   requireApproval?: boolean;
+  services: ASG[]; // ECS services
+  ecsNotEnabled?: boolean; // role predates ECS permissions
   clientId?: string;
   connectionMethod?: 'single-account' | 'organization';
   asgs: ASG[];

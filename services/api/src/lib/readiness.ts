@@ -25,6 +25,7 @@ import {
   type ReadinessCheck,
   type ReadinessResult,
 } from '@cloud-ops/shared';
+import { checkEcsReadiness } from './ecs-readiness.js';
 import type { TempCredentials } from './aws.js';
 
 /** On-Demand vCPU quota buckets we know the codes for. Other families are reported as "not checked". */
@@ -39,6 +40,7 @@ export async function checkReadiness(
   asg: AsgRef,
   target: CapacitySettings,
 ): Promise<ReadinessResult> {
+  if (asg.kind === 'ecs') return checkEcsReadiness(credentials, asg, target);
   const checks: ReadinessCheck[] = [];
   const add = (c: ReadinessCheck) => checks.push(c);
   const region = asg.region;

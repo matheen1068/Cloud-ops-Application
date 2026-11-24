@@ -2,6 +2,7 @@ import type { ClientView } from '@cloud-ops/shared';
 import React, { useState } from 'react';
 import { validateCapacity, type CapacitySettings, type ReadinessResult } from '@cloud-ops/shared';
 import { api } from '../lib/api';
+import { refOf } from '../lib/adapters';
 import { ASG, AWSAccount } from '../types';
 import ReadinessList, { hasFailures, hasProblems } from './ReadinessList';
 
@@ -123,6 +124,17 @@ const AccountExplorer: React.FC<AccountExplorerProps> = ({ accounts: allAccounts
                   onScale={onScale}
                 />
               ))}
+              {account.services.length > 0 && (
+                <h5 className="pt-2 text-[10px] font-black uppercase tracking-widest text-slate-400">ECS services</h5>
+              )}
+              {account.services.map((svc) => (
+                <AsgCard key={svc.id} asg={svc} canScale={canOperate && account.accessLevel === 'Operate'} onScale={onScale} />
+              ))}
+              {account.ecsNotEnabled && (
+                <p className="text-xs text-slate-400">
+                  ECS services aren't visible yet: update this account's access role to the latest onboarding template (adds ECS permissions).
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -156,15 +168,19 @@ const AsgCard: React.FC<{
   };
 
   const scale = async () => {
-    await onScale(asg, capacity, reason);
+    await onScale(asg, effective, reason);
     setEditing(false);
     setChecks(null);
   };
 
   // First click runs the readiness check. All clear: apply straight away.
   // Problems: show them and let the user choose "Apply anyway".
+  // ECS service without an auto scaling target: only desired matters.
+  const fixedCount = asg.kind === 'ecs' && !asg.autoscaling;
+  const effective: CapacitySettings = fixedCount ? { min: capacity.desired, desired: capacity.desired, max: capacity.desired } : capacity;
+
   const apply = async () => {
-    const invalid = validateCapacity(capacity);
+    const invalid = validateCapacity(effective);
     if (invalid) {
       setError(invalid);
       return;
@@ -177,7 +193,7 @@ const AsgCard: React.FC<{
         return;
       }
       const { results } = await api.readiness({
-        targets: [{ asg: { accountId: asg.accountId, region: asg.region, asgName: asg.name }, capacity }],
+        targets: [{ asg: refOf(asg), capacity: effective }],
       });
       if (hasProblems(results)) setChecks(results);
       else await scale();
@@ -210,11 +226,16 @@ const AsgCard: React.FC<{
         <div>
           <h4 className="font-semibold text-slate-800 flex items-center gap-2">
             {asg.name}
+            {asg.kind === 'ecs' && (
+              <span className="px-1.5 py-0.5 rounded bg-sky-100 text-sky-700 text-[9px] font-black uppercase">ECS · {asg.launchType}</span>
+            )}
             {asg.managed && (
               <span className="px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 text-[9px] font-black uppercase">Managed</span>
             )}
           </h4>
-          <p className="text-[10px] font-bold text-slate-400 uppercase">{asg.region}</p>
+          <p className="text-[10px] font-bold text-slate-400 uppercase">
+            {asg.region}{asg.kind === 'ecs' && ` · cluster ${asg.cluster}`}{fixedCount && ' · no auto scaling target: only desired changes'}
+          </p>
         </div>
         {canScale && !editing && (
           <button onClick={open} className="px-4 py-2 bg-slate-900 text-white rounded-xl text-[11px] font-black uppercase hover:bg-slate-800">
@@ -229,7 +250,7 @@ const AsgCard: React.FC<{
             ['Min', asg.capacity.min],
             ['Desired', asg.capacity.desired],
             ['Max', asg.capacity.max],
-            ['In service', asg.inService],
+            [asg.kind === 'ecs' ? 'Running tasks' : 'In service', asg.inService],
           ] as const
         ).map(([label, value]) => (
           <div key={label} className="bg-white p-3 rounded border border-slate-200 shadow-sm">

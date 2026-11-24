@@ -44,7 +44,7 @@ Parameters:
     Type: String
     Default: "false"
     AllowedValues: ["true", "false"]
-    Description: If true, scaling is allowed only on ASGs tagged CloudOpsManaged=true.
+    Description: Only scale ASGs and ECS services tagged CloudOpsManaged=true (for ECS with auto scaling, tag the scalable target too).
   IsOrgManagementAccount:
     Type: String
     Default: "false"
@@ -66,7 +66,7 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Ref RoleName
-      Description: Assumed by the Cloud-Ops platform to discover and scale Auto Scaling groups.
+      Description: Assumed by the Cloud-Ops platform to discover and scale Auto Scaling groups and ECS services.
       MaxSessionDuration: 3600
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -106,16 +106,31 @@ Resources:
                   - cloudwatch:GetMetricStatistics
                   - cloudwatch:ListMetrics
                   - servicequotas:ListServiceQuotas
+                  - ecs:ListClusters
+                  - ecs:ListServices
+                  - ecs:DescribeTaskDefinition
+                  - application-autoscaling:DescribeScalableTargets
+                  - application-autoscaling:DescribeScalingActivities
                 Resource: "*"
+              - Sid: ReadEcsServices
+                Effect: Allow
+                Action:
+                  - ecs:DescribeClusters
+                  - ecs:DescribeServices
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:ecs:*:${AWS::AccountId}:cluster/*"
+                  - !Sub "arn:${AWS::Partition}:ecs:*:${AWS::AccountId}:service/*"
               - Sid: ReadAlarms
                 Effect: Allow
                 Action: cloudwatch:DescribeAlarms
                 Resource: !Sub "arn:${AWS::Partition}:cloudwatch:*:${AWS::AccountId}:alarm:*"
-              # Only EC2 quotas are needed (vCPU limits before a big scale-up).
-              - Sid: ReadEc2Quotas
+              # EC2 and Fargate vCPU quotas, checked before a big scale-up.
+              - Sid: ReadComputeQuotas
                 Effect: Allow
                 Action: servicequotas:GetServiceQuota
-                Resource: !Sub "arn:${AWS::Partition}:servicequotas:*:${AWS::AccountId}:ec2/*"
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:servicequotas:*:${AWS::AccountId}:ec2/*"
+                  - !Sub "arn:${AWS::Partition}:servicequotas:*:${AWS::AccountId}:fargate/*"
       Tags:
         - Key: ManagedBy
           Value: Cloud-Ops
@@ -143,6 +158,19 @@ Resources:
               - autoscaling:SuspendProcesses
               - autoscaling:ResumeProcesses
             Resource: !Sub "arn:${AWS::Partition}:autoscaling:*:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/*"
+          - Sid: ScaleEcsServices
+            Effect: Allow
+            Action: ecs:UpdateService
+            Resource: !Sub "arn:${AWS::Partition}:ecs:*:${AWS::AccountId}:service/*"
+          # Only ECS desired-count targets, never other scalable targets (DynamoDB, Lambda...).
+          - Sid: ScaleEcsAutoScalingTargets
+            Effect: Allow
+            Action: application-autoscaling:RegisterScalableTarget
+            Resource: !Sub "arn:${AWS::Partition}:application-autoscaling:*:${AWS::AccountId}:scalable-target/*"
+            Condition:
+              StringEquals:
+                application-autoscaling:service-namespace: ecs
+                application-autoscaling:scalable-dimension: ecs:service:DesiredCount
 
   ScaleTaggedASGPolicy:
     Type: AWS::IAM::RolePolicy
@@ -167,6 +195,23 @@ Resources:
             Resource: !Sub "arn:${AWS::Partition}:autoscaling:*:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/*"
             Condition:
               StringEquals:
+                aws:ResourceTag/CloudOpsManaged: "true"
+          - Sid: ScaleEcsServices
+            Effect: Allow
+            Action: ecs:UpdateService
+            Resource: !Sub "arn:${AWS::Partition}:ecs:*:${AWS::AccountId}:service/*"
+            Condition:
+              StringEquals:
+                aws:ResourceTag/CloudOpsManaged: "true"
+          # Only ECS desired-count targets, never other scalable targets (DynamoDB, Lambda...).
+          - Sid: ScaleEcsAutoScalingTargets
+            Effect: Allow
+            Action: application-autoscaling:RegisterScalableTarget
+            Resource: !Sub "arn:${AWS::Partition}:application-autoscaling:*:${AWS::AccountId}:scalable-target/*"
+            Condition:
+              StringEquals:
+                application-autoscaling:service-namespace: ecs
+                application-autoscaling:scalable-dimension: ecs:service:DesiredCount
                 aws:ResourceTag/CloudOpsManaged: "true"
 
   OrgDiscoveryPolicy:

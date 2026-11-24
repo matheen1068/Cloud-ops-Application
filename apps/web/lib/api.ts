@@ -26,6 +26,7 @@ import type {
   CreateScaleEventRequest,
   CreateScheduleRequest,
   ListAsgsResponse,
+  ListEcsResponse,
   MeResponse,
   ReadinessRequest,
   ReadinessResult,
@@ -68,6 +69,7 @@ export const api = {
   listAccounts: () => request<{ accounts: AwsAccount[] }>('GET', '/accounts'),
   connectAccount: (req: ConnectAccountRequest) => request<{ account: AwsAccount }>('POST', '/accounts', req),
   listAsgs: () => request<ListAsgsResponse>('GET', '/asgs'),
+  listEcs: () => request<ListEcsResponse>('GET', '/ecs-services'),
   setCapacity: (req: CapacityChangeRequest) =>
     request<{ before: CapacitySettings; after: CapacitySettings }>('PUT', '/asgs/capacity', req),
   readiness: (req: ReadinessRequest) => request<{ results: ReadinessResult[] }>('POST', '/asgs/readiness', req),

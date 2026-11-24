@@ -6,13 +6,15 @@
 import { randomUUID } from 'node:crypto';
 import {
   asgKey,
+  refLabel,
+  refProblem,
   WEEKDAYS,
   type CreateScheduleRequest,
   type ScaleSchedule,
   type Tenant,
 } from '@cloud-ops/shared';
 import { REGION_PATTERN } from './aws.js';
-import { ClientPool, entry, fmt, operableAccount, readCapacity, writeCapacity } from './capacity.js';
+import { ClientPool, entry, fmt, operableAccount } from './capacity.js';
 import {
   deleteScheduleItem,
   getAccount,
@@ -84,6 +86,8 @@ export async function createSchedule(
     if (!asg?.accountId || !asg.asgName || !REGION_PATTERN.test(asg.region ?? '')) {
       throw new HttpError(400, 'Each ASG needs accountId, region and asgName.');
     }
+    const refIssue = refProblem(asg);
+    if (refIssue) throw new HttpError(400, refIssue);
     keys.add(asgKey(asg));
     await operableAccount(tenant.tenantId, asg.accountId);
   }
@@ -151,24 +155,23 @@ export async function switchOff(tenantId: string, scheduleId: string): Promise<v
   for (const t of schedule.targets) {
     if (t.state === 'off') continue; // already off (retry or manual)
     if (busy.has(asgKey(t.asg))) {
-      schedule.timeline.push(entry('warn', `${t.asg.asgName}: skipped, it's in an active scale event.`));
+      schedule.timeline.push(entry('warn', `${refLabel(t.asg)}: skipped, it's in an active scale event.`));
       continue;
     }
     try {
       const account = await getAccount(tenantId, t.asg.accountId);
       if (!account || account.accessLevel !== 'Operate') throw new Error('account is not connected with Operate access');
-      const client = await pool.autoscaling(account, t.asg);
-      const current = await readCapacity(client, t.asg.asgName);
-      await writeCapacity(client, t.asg.asgName, { min: 0, desired: 0, max: current.max });
+      const current = await pool.read(account, t.asg);
+      await pool.write(account, t.asg, { min: 0, desired: 0, max: current.max });
       t.baseline = current;
       t.state = 'off';
       t.message = undefined;
       changed++;
-      schedule.timeline.push(entry('info', `${t.asg.asgName}: off (was ${fmt(current)})`));
+      schedule.timeline.push(entry('info', `${refLabel(t.asg)}: off (was ${fmt(current)})`));
     } catch (err) {
       t.state = 'error';
       t.message = (err as Error).message;
-      schedule.timeline.push(entry('error', `${t.asg.asgName}: could not switch off: ${t.message}`));
+      schedule.timeline.push(entry('error', `${refLabel(t.asg)}: could not switch off: ${t.message}`));
     }
   }
   trim(schedule);
@@ -191,22 +194,21 @@ export async function switchOn(tenantId: string, scheduleId: string, schedule?: 
   for (const t of schedule.targets) {
     if (t.state !== 'off' || !t.baseline) continue;
     if (busy.has(asgKey(t.asg))) {
-      schedule.timeline.push(entry('warn', `${t.asg.asgName}: left as is, it's in an active scale event.`));
+      schedule.timeline.push(entry('warn', `${refLabel(t.asg)}: left as is, it's in an active scale event.`));
       continue;
     }
     try {
       const account = await getAccount(tenantId, t.asg.accountId);
       if (!account) throw new Error('account was disconnected');
-      const client = await pool.autoscaling(account, t.asg);
-      await writeCapacity(client, t.asg.asgName, t.baseline);
+      await pool.write(account, t.asg, t.baseline);
       t.state = 'on';
       t.message = undefined;
       changed++;
-      schedule.timeline.push(entry('info', `${t.asg.asgName}: on (${fmt(t.baseline)})`));
+      schedule.timeline.push(entry('info', `${refLabel(t.asg)}: on (${fmt(t.baseline)})`));
     } catch (err) {
       t.state = 'error';
       t.message = (err as Error).message;
-      schedule.timeline.push(entry('error', `${t.asg.asgName}: could not switch on: ${t.message}`));
+      schedule.timeline.push(entry('error', `${refLabel(t.asg)}: could not switch on: ${t.message}`));
     }
   }
   trim(schedule);

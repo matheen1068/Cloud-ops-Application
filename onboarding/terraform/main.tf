@@ -81,8 +81,23 @@ data "aws_iam_policy_document" "read" {
       "cloudwatch:GetMetricStatistics",
       "cloudwatch:ListMetrics",
       "servicequotas:ListServiceQuotas",
+      "ecs:ListClusters",
+      "ecs:ListServices",
+      "ecs:DescribeTaskDefinition",
+      "application-autoscaling:DescribeScalableTargets",
+      "application-autoscaling:DescribeScalingActivities",
     ]
     resources = ["*"]
+  }
+
+  statement {
+    sid     = "ReadEcsServices"
+    effect  = "Allow"
+    actions = ["ecs:DescribeClusters", "ecs:DescribeServices"]
+    resources = [
+      "arn:${local.partition}:ecs:*:${local.account_id}:cluster/*",
+      "arn:${local.partition}:ecs:*:${local.account_id}:service/*",
+    ]
   }
 
   statement {
@@ -92,12 +107,15 @@ data "aws_iam_policy_document" "read" {
     resources = ["arn:${local.partition}:cloudwatch:*:${local.account_id}:alarm:*"]
   }
 
-  # Only EC2 quotas are needed (vCPU limits before a big scale-up).
+  # EC2 and Fargate vCPU quotas, checked before a big scale-up.
   statement {
-    sid       = "ReadEc2Quotas"
+    sid       = "ReadComputeQuotas"
     effect    = "Allow"
     actions   = ["servicequotas:GetServiceQuota"]
-    resources = ["arn:${local.partition}:servicequotas:*:${local.account_id}:ec2/*"]
+    resources = [
+      "arn:${local.partition}:servicequotas:*:${local.account_id}:ec2/*",
+      "arn:${local.partition}:servicequotas:*:${local.account_id}:fargate/*",
+    ]
   }
 }
 
@@ -115,6 +133,50 @@ data "aws_iam_policy_document" "scale" {
     effect    = "Allow"
     actions   = local.scale_actions
     resources = [local.asg_arns]
+
+    dynamic "condition" {
+      for_each = var.restrict_to_tagged_asgs ? [1] : []
+      content {
+        test     = "StringEquals"
+        variable = "aws:ResourceTag/CloudOpsManaged"
+        values   = ["true"]
+      }
+    }
+  }
+
+  statement {
+    sid       = "ScaleEcsServices"
+    effect    = "Allow"
+    actions   = ["ecs:UpdateService"]
+    resources = ["arn:${local.partition}:ecs:*:${local.account_id}:service/*"]
+
+    dynamic "condition" {
+      for_each = var.restrict_to_tagged_asgs ? [1] : []
+      content {
+        test     = "StringEquals"
+        variable = "aws:ResourceTag/CloudOpsManaged"
+        values   = ["true"]
+      }
+    }
+  }
+
+  # Only ECS desired-count targets, never other scalable targets (DynamoDB, Lambda...).
+  statement {
+    sid       = "ScaleEcsAutoScalingTargets"
+    effect    = "Allow"
+    actions   = ["application-autoscaling:RegisterScalableTarget"]
+    resources = ["arn:${local.partition}:application-autoscaling:*:${local.account_id}:scalable-target/*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "application-autoscaling:service-namespace"
+      values   = ["ecs"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "application-autoscaling:scalable-dimension"
+      values   = ["ecs:service:DesiredCount"]
+    }
 
     dynamic "condition" {
       for_each = var.restrict_to_tagged_asgs ? [1] : []
