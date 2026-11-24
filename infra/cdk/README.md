@@ -34,6 +34,30 @@ cd infra/cdk && npx cdk bootstrap && cd ../..
 npm run deploy
 ```
 
+### Custom domain (optional)
+
+Serve the app at your own subdomain, e.g. `app.matheen.in`, instead of the CloudFront URL. Only that subdomain moves to Route 53; the rest of the domain (a website on Vercel, email) stays where it is. Costs $0.50/month for the hosted zone; the certificate is free. The stack must be in **us-east-1**, because CloudFront only uses certificates from there.
+
+1. Create a Route 53 zone for the subdomain. It prints the zone ID and four name servers:
+
+```bash
+aws route53 create-hosted-zone --name app.matheen.in --caller-reference cloudops-app-$(date +%s) --query "[HostedZone.Id, DelegationSet.NameServers]" --output text
+```
+
+2. Where the parent domain's DNS is managed (GoDaddy → DNS, or Vercel → Domains if it uses Vercel's name servers), add four **NS** records with host/name `app`, one per name server.
+
+3. Check the delegation (it should list the four `awsdns` servers), then deploy:
+
+```bash
+dig NS app.matheen.in +short
+echo 'export CLOUDOPS_DOMAIN_NAME=app.matheen.in' >> ~/.zshrc
+echo 'export CLOUDOPS_HOSTED_ZONE_ID=Z0123456789ABC' >> ~/.zshrc
+source ~/.zshrc
+npm run deploy
+```
+
+The certificate validates by itself through the zone, which takes a few minutes. The CloudFront URL keeps working, and invite links switch to the custom domain.
+
 ### Platform operator
 
 You (whoever runs this deployment) can see every workspace and change plans from a **Platform** page in the app, until billing does it automatically. Set your email once, the same way as the budget email:

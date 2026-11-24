@@ -4,7 +4,7 @@ import { Api } from './api';
 import { Auth } from './auth';
 import { CostGuardrails } from './cost';
 import { Data } from './data';
-import { Web } from './web';
+import { Web, type CustomDomain } from './web';
 
 export type Stage = 'dev' | 'prod';
 
@@ -15,6 +15,8 @@ export interface PlatformStackProps extends StackProps {
   allowedOrigins: string[];
   senderEmail?: string;
   operatorEmails?: string;
+  /** Optional custom domain for the web app, e.g. app.matheen.in (stack must be in us-east-1). */
+  domain?: CustomDomain;
 }
 
 /**
@@ -30,14 +32,15 @@ export class PlatformStack extends Stack {
 
     const data = new Data(this, 'Data', { stage });
     const auth = new Auth(this, 'Auth', { stage });
-    const web = new Web(this, 'Web', { stage });
+    const web = new Web(this, 'Web', { stage, domain: props.domain });
     const api = new Api(this, 'Api', {
       stage,
       table: data.table,
       userPool: auth.userPool,
       userPoolClient: auth.userPoolClient,
       // Local dev origins plus the CloudFront URL of the hosted app
-      allowedOrigins: [...props.allowedOrigins, web.url],
+      // The CloudFront URL keeps working next to a custom domain.
+      allowedOrigins: [...new Set([...props.allowedOrigins, web.url, web.cloudFrontUrl])],
       webUrl: web.url,
       senderEmail: props.senderEmail,
       operatorEmails: props.operatorEmails,

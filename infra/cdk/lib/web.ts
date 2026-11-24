@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { Annotations, Duration, RemovalPolicy } from 'aws-cdk-lib';
+import { Annotations, Duration, RemovalPolicy, Stack, Token } from 'aws-cdk-lib';
+import { Certificate, CertificateValidation } from 'aws-cdk-lib/aws-certificatemanager';
 import {
   CachePolicy,
   Distribution,
@@ -11,12 +12,23 @@ import {
 } from 'aws-cdk-lib/aws-cloudfront';
 import { S3BucketOrigin } from 'aws-cdk-lib/aws-cloudfront-origins';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
+import { AaaaRecord, ARecord, HostedZone, RecordTarget } from 'aws-cdk-lib/aws-route53';
+import { CloudFrontTarget } from 'aws-cdk-lib/aws-route53-targets';
 import { BlockPublicAccess, Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3';
 import { BucketDeployment, Source } from 'aws-cdk-lib/aws-s3-deployment';
 import { Construct } from 'constructs';
 import type { Stage } from './platform-stack';
 
 const DIST = path.join(__dirname, '..', '..', '..', 'apps', 'web', 'dist');
+
+/**
+ * Optional custom domain, e.g. app.matheen.in. hostedZoneId is a Route 53 public zone for
+ * exactly that name (delegated from the parent domain's DNS with NS records).
+ */
+export interface CustomDomain {
+  name: string;
+  hostedZoneId: string;
+}
 
 export interface SiteConfig {
   apiUrl: string;
@@ -31,12 +43,24 @@ export interface SiteConfig {
  */
 export class Web extends Construct {
   readonly distribution: Distribution;
+  /** The custom domain when there is one, otherwise the CloudFront URL. */
   readonly url: string;
+  readonly cloudFrontUrl: string;
   private readonly bucket: Bucket;
 
-  constructor(scope: Construct, id: string, props: { stage: Stage }) {
+  constructor(scope: Construct, id: string, props: { stage: Stage; domain?: CustomDomain }) {
     super(scope, id);
     const isProd = props.stage === 'prod';
+    const domain = props.domain;
+
+    // CloudFront only accepts certificates from us-east-1.
+    const region = Stack.of(this).region;
+    if (domain && !Token.isUnresolved(region) && region !== 'us-east-1') {
+      throw new Error(`A custom domain needs the stack in us-east-1 (CloudFront certificates live there). This stack is in ${region}.`);
+    }
+    const zone = domain && HostedZone.fromHostedZoneAttributes(this, 'Zone', { hostedZoneId: domain.hostedZoneId, zoneName: domain.name });
+    const certificate =
+      domain && zone && new Certificate(this, 'Certificate', { domainName: domain.name, validation: CertificateValidation.fromDns(zone) });
 
     this.bucket = new Bucket(this, 'SiteBucket', {
       blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
@@ -65,9 +89,17 @@ export class Web extends Construct {
       })),
       priceClass: PriceClass.PRICE_CLASS_200, // includes India edge locations
       httpVersion: HttpVersion.HTTP2_AND_3,
+      ...(domain && certificate ? { domainNames: [domain.name], certificate } : {}),
     });
 
-    this.url = `https://${this.distribution.distributionDomainName}`;
+    this.cloudFrontUrl = `https://${this.distribution.distributionDomainName}`;
+    this.url = domain ? `https://${domain.name}` : this.cloudFrontUrl;
+
+    if (zone) {
+      const target = RecordTarget.fromAlias(new CloudFrontTarget(this.distribution));
+      new ARecord(this, 'AliasA', { zone, target });
+      new AaaaRecord(this, 'AliasAAAA', { zone, target });
+    }
   }
 
   /**
